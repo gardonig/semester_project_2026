@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import json
 import os
 import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QPixmap
@@ -28,8 +30,10 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -57,10 +61,11 @@ def _ensure_qt_platform_plugin_path() -> None:
 
 
 @dataclass
-class Structure: # this is a node in the poset which is an anatomical structure (organ, bone, muscle, etc.)
-    name: str 
-    com_vertical: float  # Center of Mass along vertical (superior–inferior) axis
-# e.g. Structure(name="Skull", com_vertical=90.0)
+class Structure:
+    """A node in the poset: an anatomical structure (organ, bone, muscle, etc.)."""
+    name: str
+    com_vertical: float   # Center of Mass along vertical (superior–inferior) axis
+    com_lateral: float = 0.0  # Center of Mass along frontal (left–right) axis; left = smaller, right = larger; patient's perspective
 
 
 def load_structures_from_json(path: str) -> List[Structure]:
@@ -70,10 +75,11 @@ def load_structures_from_json(path: str) -> List[Structure]:
     Expected format:
     {
       "structures": [
-        {"name": "Skull", "com_vertical": 90.0},
+        {"name": "Skull", "com_vertical": 90.0, "com_lateral": 0.0},
         ...
       ]
     }
+    com_lateral is optional (default 0.0). Left/right are from the patient's perspective (smaller = left, larger = right).
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -83,89 +89,124 @@ def load_structures_from_json(path: str) -> List[Structure]:
         try:
             name = str(item["name"])
             com_vertical = float(item["com_vertical"])
+            com_lateral = float(item.get("com_lateral", 0.0))
         except (KeyError, TypeError, ValueError):
             continue
-        structures.append(Structure(name=name, com_vertical=com_vertical))
+        structures.append(Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral))
     return structures
 
 
 def save_poset_to_json(
     path: str,
     structures: List[Structure],
-    edges: Set[Tuple[int, int]],
+    edges_vertical: Set[Tuple[int, int]],
+    edges_frontal: Set[Tuple[int, int]] | None = None,
 ) -> None:
     """
-    Save a fully constructed poset (structures + Hasse edges) to JSON.
+    Save poset(s) to JSON. Both axes stored in one file.
 
     Format:
     {
-      "structures": [{"name": ..., "com_vertical": ...}, ...],
-      "edges": [[u, v], ...]
+      "structures": [{"name": ..., "com_vertical": ..., "com_lateral": ...}, ...],
+      "edges_vertical": [[u, v], ...],
+      "edges_frontal": [[u, v], ...]
     }
     """
+    if edges_frontal is None:
+        edges_frontal = set()
     payload = {
         "structures": [asdict(s) for s in structures],
-        "edges": [[int(u), int(v)] for (u, v) in sorted(edges)],
+        "edges_vertical": [[int(u), int(v)] for (u, v) in sorted(edges_vertical)],
+        "edges_frontal": [[int(u), int(v)] for (u, v) in sorted(edges_frontal)],
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
 
-def load_poset_from_json(path: str) -> Tuple[List[Structure], Set[Tuple[int, int]]]:
-    """Load a poset (structures + edges) from JSON."""
+def load_poset_from_json(
+    path: str,
+) -> Tuple[List[Structure], Set[Tuple[int, int]], Set[Tuple[int, int]]]:
+    """Load poset(s) from JSON. Returns (structures, edges_vertical, edges_frontal). Backward compat: 'edges' -> edges_vertical."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     structures_data = data.get("structures", [])
-    edges_data = data.get("edges", [])
+    edges_v_data = data.get("edges_vertical", data.get("edges", []))
+    edges_f_data = data.get("edges_frontal", [])
 
     structures: List[Structure] = []
     for item in structures_data:
         try:
             name = str(item["name"])
             com_vertical = float(item["com_vertical"])
+            com_lateral = float(item.get("com_lateral", 0.0))
         except (KeyError, TypeError, ValueError):
             continue
-        structures.append(Structure(name=name, com_vertical=com_vertical))
+        structures.append(Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral))
 
-    edges: Set[Tuple[int, int]] = set()
-    for item in edges_data:
-        try:
-            u, v = int(item[0]), int(item[1])
-            edges.add((u, v))
-        except (TypeError, ValueError, IndexError):
-            continue
+    def parse_edges(edges_data: list) -> Set[Tuple[int, int]]:
+        out: Set[Tuple[int, int]] = set()
+        for item in edges_data:
+            try:
+                u, v = int(item[0]), int(item[1])
+                out.add((u, v))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
 
-    return structures, edges
+    return structures, parse_edges(edges_v_data), parse_edges(edges_f_data)
 
 
 class PosetViewerWindow(QWidget):
-    """View a saved poset: tabular data + Hasse diagram."""
+    """View saved poset(s): tabular data + Hasse diagram per axis (Vertical / Frontal)."""
 
     def __init__(self, poset_path: str) -> None:
         super().__init__()
         self.setWindowTitle("Anatomical Poset Viewer")
         self.resize(900, 600)
 
-        root = QHBoxLayout(self)
-        list_group = QGroupBox("Poset Data")
-        list_layout = QVBoxLayout(list_group)
-        self.list_widget = QListWidget()
-        list_layout.addWidget(self.list_widget)
+        self._path = poset_path
+        self._structures: List[Structure] = []
+        self._edges_vertical: Set[Tuple[int, int]] = set()
+        self._edges_frontal: Set[Tuple[int, int]] = set()
 
-        diagram_group = QGroupBox("Hasse Diagram")
-        diagram_layout = QVBoxLayout(diagram_group)
-        self.hasse_view = HasseDiagramView()
-        self.hasse_view.setMinimumSize(400, 300)
-        diagram_layout.addWidget(self.hasse_view)
-
-        root.addWidget(list_group, stretch=1)
-        root.addWidget(diagram_group, stretch=2)
+        self._tabs = QTabWidget()
+        root = QVBoxLayout(self)
+        root.addWidget(self._tabs)
 
         self._load(poset_path)
 
+    def _fill_tab(
+        self,
+        list_widget: QListWidget,
+        hasse_view: HasseDiagramView,
+        structures: List[Structure],
+        edges: Set[Tuple[int, int]],
+        axis_label: str,
+        relation_label: str,
+    ) -> None:
+        list_widget.clear()
+        list_widget.addItem(f"Loaded from: {self._path}")
+        list_widget.addItem("")
+        list_widget.addItem(f"Structures ({axis_label}):")
+        for idx, s in enumerate(structures):
+            if axis_label == "Vertical":
+                list_widget.addItem(f"  {idx}: {s.name} (CoM vertical = {s.com_vertical})")
+            else:
+                list_widget.addItem(f"  {idx}: {s.name} (CoM lateral = {s.com_lateral})")
+        list_widget.addItem("")
+        if not edges:
+            list_widget.addItem(f"No strict '{relation_label}' relations recorded.")
+        else:
+            list_widget.addItem("Cover relations (Hasse diagram edges):")
+            for u, v in sorted(edges):
+                su, sv = structures[u], structures[v]
+                list_widget.addItem(f"{su.name}  ≻  {sv.name}")
+        axis = AXIS_FRONTAL if axis_label == "Frontal" else AXIS_VERTICAL
+        hasse_view.draw_diagram(structures, edges, axis=axis)
+
     def _load(self, path: str) -> None:
         try:
-            structures, edges = load_poset_from_json(path)
+            self._structures, self._edges_vertical, self._edges_frontal = load_poset_from_json(path)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
                 self,
@@ -174,23 +215,47 @@ class PosetViewerWindow(QWidget):
             )
             return
 
-        self.list_widget.clear()
-        self.list_widget.addItem(f"Loaded from: {path}")
-        self.list_widget.addItem("")
-        self.list_widget.addItem("Structures (sorted superior → inferior, as saved):")
-        for idx, s in enumerate(structures):
-            self.list_widget.addItem(f"  {idx}: {s.name} (CoM vertical = {s.com_vertical})")
-        self.list_widget.addItem("")
+        # Tab: Vertical
+        vert_widget = QWidget()
+        vert_layout = QHBoxLayout(vert_widget)
+        vert_list_group = QGroupBox("Poset Data")
+        vert_list_layout = QVBoxLayout(vert_list_group)
+        vert_list = QListWidget()
+        vert_list_layout.addWidget(vert_list)
+        vert_diagram_group = QGroupBox("Hasse Diagram")
+        vert_diagram_layout = QVBoxLayout(vert_diagram_group)
+        vert_hasse = HasseDiagramView()
+        vert_hasse.setMinimumSize(400, 300)
+        vert_diagram_layout.addWidget(vert_hasse)
+        vert_layout.addWidget(vert_list_group, stretch=1)
+        vert_layout.addWidget(vert_diagram_group, stretch=2)
+        self._fill_tab(
+            vert_list, vert_hasse,
+            self._structures, self._edges_vertical,
+            "Vertical", "above",
+        )
+        self._tabs.addTab(vert_widget, "Vertical (head–toes)")
 
-        if not edges:
-            self.list_widget.addItem("No strict 'above' relations recorded.")
-        else:
-            self.list_widget.addItem("Cover relations (Hasse diagram edges):")
-            for u, v in sorted(edges):
-                su, sv = structures[u], structures[v]
-                self.list_widget.addItem(f"{su.name}  ≻  {sv.name}")
-
-        self.hasse_view.draw_diagram(structures, edges)
+        # Tab: Frontal
+        front_widget = QWidget()
+        front_layout = QHBoxLayout(front_widget)
+        front_list_group = QGroupBox("Poset Data")
+        front_list_layout = QVBoxLayout(front_list_group)
+        front_list = QListWidget()
+        front_list_layout.addWidget(front_list)
+        front_diagram_group = QGroupBox("Hasse Diagram")
+        front_diagram_layout = QVBoxLayout(front_diagram_group)
+        front_hasse = HasseDiagramView()
+        front_hasse.setMinimumSize(400, 300)
+        front_diagram_layout.addWidget(front_hasse)
+        front_layout.addWidget(front_list_group, stretch=1)
+        front_layout.addWidget(front_diagram_group, stretch=2)
+        self._fill_tab(
+            front_list, front_hasse,
+            self._structures, self._edges_frontal,
+            "Frontal", "to the left of",
+        )
+        self._tabs.addTab(front_widget, "Frontal (left–right, patient's view)")
 
 
 class HasseDiagramView(QGraphicsView):
@@ -235,10 +300,11 @@ class HasseDiagramView(QGraphicsView):
         self,
         structures: List[Structure],
         edges: Set[Tuple[int, int]],
+        axis: str = "vertical",
     ) -> None:
         """
-        Lay out nodes in levels (superior at the top, inferior at the bottom),
-        then draw nodes with labels and connecting edges.
+        Lay out nodes and draw edges. Vertical axis: levels (top to bottom), x spread by index.
+        Frontal axis: y by level, x by com_lateral so left is left of spine is left of right.
         """
         self.clear()
 
@@ -256,7 +322,6 @@ class HasseDiagramView(QGraphicsView):
         # Longest-path style levels from sources (indeg == 0)
         levels: Dict[int, int] = {i: 0 for i in range(n)}
 
-        # Simple topological order to propagate levels
         from collections import deque
 
         q: deque[int] = deque(i for i in range(n) if indeg[i] == 0)
@@ -270,7 +335,6 @@ class HasseDiagramView(QGraphicsView):
                     seen.add(v)
                     q.append(v)
 
-        # Group nodes by level (0 = most superior)
         level_nodes: Dict[int, List[int]] = {}
         max_level = 0
         for node, lvl in levels.items():
@@ -278,25 +342,39 @@ class HasseDiagramView(QGraphicsView):
             if lvl > max_level:
                 max_level = lvl
 
-        # Compute positions
         node_radius = 35.0
         h_spacing = 140.0
         v_spacing = 140.0
 
         positions: Dict[int, QPointF] = {}
 
-        for lvl in range(0, max_level + 1):
-            nodes_at_level = level_nodes.get(lvl, [])
-            if not nodes_at_level:
-                continue
-            count = len(nodes_at_level)
-            total_width = (count - 1) * h_spacing
-            start_x = -total_width / 2.0
-            y = lvl * v_spacing
-
-            for idx, node in enumerate(sorted(nodes_at_level)):
-                x = start_x + idx * h_spacing
+        if axis == "frontal":
+            # Frontal: x = lateral position (left on left, right on right), y = level
+            lat_vals = [structures[i].com_lateral for i in range(n)]
+            min_lat = min(lat_vals)
+            max_lat = max(lat_vals)
+            width_span = max((n - 1) * h_spacing, 1.0)
+            for node in range(n):
+                y = levels[node] * v_spacing
+                if max_lat > min_lat:
+                    norm = (structures[node].com_lateral - min_lat) / (max_lat - min_lat)
+                    x = (norm - 0.5) * width_span
+                else:
+                    x = 0.0
                 positions[node] = QPointF(x, y)
+        else:
+            # Vertical: x spread by index within level, y = level
+            for lvl in range(0, max_level + 1):
+                nodes_at_level = level_nodes.get(lvl, [])
+                if not nodes_at_level:
+                    continue
+                count = len(nodes_at_level)
+                total_width = (count - 1) * h_spacing
+                start_x = -total_width / 2.0
+                y = lvl * v_spacing
+                for idx, node in enumerate(sorted(nodes_at_level)):
+                    x = start_x + idx * h_spacing
+                    positions[node] = QPointF(x, y)
 
         # Draw edges first so they appear behind nodes
         edge_pen = QPen(QColor(80, 80, 80))
@@ -347,19 +425,25 @@ class HasseDiagramView(QGraphicsView):
         # Fit everything in view initially
         self.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
+AXIS_VERTICAL = "vertical"
+AXIS_FRONTAL = "frontal"
+
+
 class PosetBuilder:
     """
     Implements Algorithm 1 using the gap-based CoM strategy.
-    Structures are first sorted by CoM (descending).
+    Structures are sorted by the chosen axis CoM (descending).
     The user is then queried step‑by‑step via Q(x, y) provided by the GUI.
     """
 
-    def __init__(self, structures: List[Structure]) -> None:
-        # Sort descending by CoM
-        self.structures: List[Structure] = sorted(
-            structures, key=lambda s: s.com_vertical, reverse=True
-        )
+    def __init__(self, structures: List[Structure], axis: str = AXIS_VERTICAL) -> None:
+        if axis == AXIS_FRONTAL:
+            key = lambda s: s.com_lateral
+        else:
+            key = lambda s: s.com_vertical
+        self.structures: List[Structure] = sorted(structures, key=key, reverse=True)
         self.n = len(self.structures)
+        self.axis = axis
 
         # Graph represented as adjacency list using indices into self.structures
         self.edges: Set[Tuple[int, int]] = set()
@@ -471,102 +555,168 @@ class PosetBuilder:
 
 class DefinitionDialog(QDialog):
     """
-    Shown before the query window. Displays the definition and example images.
-    User presses "Understood" to proceed to questions.
+    Shown before the query window. Displays the definition (and examples for vertical).
+    User presses "Proceed" to proceed to questions.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, axis: str = AXIS_VERTICAL) -> None:
         super().__init__()
-        self.setWindowTitle("Definition — Poset Construction")
+        self.setWindowTitle("Instructions — Poset Construction")
         self.resize(560, 600)
         self.setModal(True)
+        self._axis = axis
+        self.setStyleSheet("background-color: #ffffff;")
 
         layout = QVBoxLayout(self)
 
-        def_label = QLabel(
-            "'Strictly above': the lowest point of the superior structure is higher "
-            "than the highest point of the inferior one (head–to–toes axis)."
-        )
-        def_label.setWordWrap(True)
-        def_label.setStyleSheet(
-            "color: #222; font-size: 16px; padding: 12px 16px; "
-            "background: #f5f5f5; border-radius: 8px;"
-        )
-        layout.addWidget(def_label)
+        # All text: dark on white (no grey backgrounds)
+        _text_style = "color: #1a1a1a; font-size: 14px; padding: 6px 0;"
+        _heading_style = "color: #1a1a1a; font-weight: bold; font-size: 15px; padding: 10px 0 4px 0;"
 
-        # Example images with references (stored in assets/definition_images)
+        # ---- 1. Welcome and intro (first) ----
+        welcome_heading = QLabel("Welcome to the Anatomical Structure Questionnaire")
+        welcome_heading.setStyleSheet("color: #1a1a1a; font-weight: bold; font-size: 18px; padding: 0 0 12px 0;")
+        layout.addWidget(welcome_heading)
+        intro_text = (
+            "Thank you for taking part. In this questionnaire you will be asked to compare pairs of "
+            "anatomical structures and indicate whether one is strictly above the other (vertical axis) or "
+            "strictly to the left of the other (frontal axis). Your answers help us build a spatial ordering "
+            "that can be used to check and correct automatic segmentations. There are no wrong answers—we need "
+            "your clinical judgement.\n\n"
+            "We assume the patient is in standard anatomical position (e.g. supine for imaging, arms supinated or "
+            "in standard clinical position). Left/right and above/below refer to this reference.\n\n"
+            "If you have any questions, please do not hesitate to reach out to Gian or Güney."
+        )
+        intro_label = QLabel(intro_text)
+        intro_label.setWordWrap(True)
+        intro_label.setStyleSheet(_text_style)
+        layout.addWidget(intro_label)
+
+        # ---- 2. Definition ----
+        if axis == AXIS_FRONTAL:
+            def_heading = QLabel("Definition: \"strictly to the left of\"")
+            def_heading.setStyleSheet(_heading_style)
+            layout.addWidget(def_heading)
+            def_text = (
+                "One structure is strictly to the left of another if the rightmost point "
+                "of the first is to the left of the leftmost point of the second (left–right / frontal axis)."
+            )
+            def_label = QLabel(def_text)
+            def_label.setWordWrap(True)
+            def_label.setStyleSheet(_text_style)
+            layout.addWidget(def_label)
+            patient_note = QLabel(
+                "Left and right are from the patient's perspective: the patient's right (e.g. right femur) "
+                "is to the right of the patient's left (e.g. left femur)."
+            )
+            patient_note.setWordWrap(True)
+            patient_note.setStyleSheet(_text_style)
+            layout.addWidget(patient_note)
+        else:
+            def_heading = QLabel("Definition: \"strictly above\"")
+            def_heading.setStyleSheet(_heading_style)
+            layout.addWidget(def_heading)
+            def_text = (
+                "One structure is strictly above another if the lowest point of the upper structure "
+                "is higher than the highest point of the lower one (head–to–toes / vertical axis)."
+            )
+            def_label = QLabel(def_text)
+            def_label.setWordWrap(True)
+            def_label.setStyleSheet(_text_style)
+            layout.addWidget(def_label)
+
+        # ---- 3. Examples (one section: question/answer wording + image placeholders for both axes) ----
+        examples_heading = QLabel("Examples")
+        examples_heading.setStyleSheet("color: #1a1a1a; font-weight: bold; font-size: 15px; padding: 14px 0 4px 0;")
+        layout.addWidget(examples_heading)
+
         _script_dir = Path(__file__).resolve().parent
         _img_dir = _script_dir / "assets" / "definition_images"
         _img_height = 140
-
-        # Image 1: Femur strictly above tarsal bones (full leg X-ray)
-        ex1_label = QLabel("Example: Femur strictly above tarsal bones")
-        ex1_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-top: 14px;")
-        layout.addWidget(ex1_label)
-        femur_tarsal_path = _img_dir / "femur_tarsal_leg.jpg"
-        self.example_img_femur_tarsal = QLabel()
-        self.example_img_femur_tarsal.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.example_img_femur_tarsal.setFixedHeight(_img_height)
-        self.example_img_femur_tarsal.setStyleSheet(
-            "border: 1px solid #cccccc; border-radius: 8px; margin-top: 10px; "
-            "background: #fafafa;"
-        )
-        if femur_tarsal_path.exists():
-            pix = QPixmap(str(femur_tarsal_path))
-            if not pix.isNull():
-                self.example_img_femur_tarsal.setPixmap(
-                    pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
-                )
-        if self.example_img_femur_tarsal.pixmap() is None or self.example_img_femur_tarsal.pixmap().isNull():
-            self.example_img_femur_tarsal.setText("Example:\nFemur strictly above tarsal bones\n[image not found]")
-            self.example_img_femur_tarsal.setStyleSheet(
-                "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 10px; "
-                "color: #555; font-size: 13px;"
-            )
-        layout.addWidget(self.example_img_femur_tarsal)
-        ref1 = QLabel(
-            "Source: X-ray of leg (femur, tibia, ankle). Nizil Shah, CC BY-SA 4.0. "
-            "commons.wikimedia.org/wiki/File:X_ray_internal_fixation_leg_fracture.jpg"
-        )
-        ref1.setWordWrap(True)
-        ref1.setStyleSheet("color: #666; font-size: 10px; margin-top: 2px;")
-        layout.addWidget(ref1)
-
-        # Image 2: Pelvis and femur overlapping (3D CT)
-        ex2_label = QLabel("Example: Pelvis and femur overlapping")
-        ex2_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-top: 14px;")
-        layout.addWidget(ex2_label)
-        pelvis_femur_path = _img_dir / "pelvis_femur_ct.jpg"
-        self.example_img_pelvis_femur = QLabel()
-        self.example_img_pelvis_femur.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.example_img_pelvis_femur.setFixedHeight(_img_height)
-        self.example_img_pelvis_femur.setStyleSheet(
+        _img_style = (
             "border: 1px solid #cccccc; border-radius: 8px; margin-top: 6px; "
-            "background: #fafafa;"
+            "background: #ffffff;"
         )
-        if pelvis_femur_path.exists():
-            pix = QPixmap(str(pelvis_femur_path))
-            if not pix.isNull():
-                self.example_img_pelvis_femur.setPixmap(
-                    pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
-                )
-        if self.example_img_pelvis_femur.pixmap() is None or self.example_img_pelvis_femur.pixmap().isNull():
-            self.example_img_pelvis_femur.setText("Example:\nPelvis and femur overlapping\n[image not found]")
-            self.example_img_pelvis_femur.setStyleSheet(
-                "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
-                "color: #555; font-size: 13px;"
-            )
-        layout.addWidget(self.example_img_pelvis_femur)
-        ref2 = QLabel(
-            "Source: 3D rendered CT of bony pelvis. Mikael Häggström, CC0 (Public Domain). "
-            "commons.wikimedia.org/wiki/File:3D_rendered_CT_of_bony_pelvis_2.jpg"
+        _placeholder_style = (
+            "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
+            "color: #444; font-size: 13px; background: #ffffff;"
         )
-        ref2.setWordWrap(True)
-        ref2.setStyleSheet("color: #666; font-size: 10px; margin-top: 2px;")
-        layout.addWidget(ref2)
 
-        understood_btn = QPushButton("Understood")
-        understood_btn.setStyleSheet(
+        if axis == AXIS_FRONTAL:
+            # Frontal: image placeholders
+            ph1_caption = QLabel("Question: \"Is the Left femur strictly to the left of the Right femur?\" "
+                "→ Answer: Yes (the patient's left femur is to the left of the patient's right femur).")
+            ph1_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 10px;")
+            layout.addWidget(ph1_caption)
+            ph1 = QLabel("[Add example image here]")
+            ph1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            ph1.setFixedHeight(_img_height)
+            ph1.setStyleSheet(_placeholder_style)
+            layout.addWidget(ph1)
+            ph2_caption = QLabel("Is the left femur strictly to the left of the pelvis? → Answer: No (the patient's left femur is overlapping the patient's pelvis).")
+            ph2_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 14px;")
+            layout.addWidget(ph2_caption)
+            ph2 = QLabel("[Add example image here]")
+            ph2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            ph2.setFixedHeight(_img_height)
+            ph2.setStyleSheet(_placeholder_style)
+            layout.addWidget(ph2)
+        else:
+            # Vertical: two example images (with fallback placeholder if missing)
+            ex1_caption = QLabel("Question: \"Is the Femur strictly above the Tibia?\" → Answer: Yes.")
+            ex1_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 10px;")
+            layout.addWidget(ex1_caption)
+            self.example_img_femur_tarsal = QLabel()
+            self.example_img_femur_tarsal.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.example_img_femur_tarsal.setFixedHeight(_img_height)
+            self.example_img_femur_tarsal.setStyleSheet(_img_style)
+            femur_tarsal_path = _img_dir / "femur_tarsal_leg.jpg"
+            if femur_tarsal_path.exists():
+                pix = QPixmap(str(femur_tarsal_path))
+                if not pix.isNull():
+                    self.example_img_femur_tarsal.setPixmap(
+                        pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
+                    )
+            if self.example_img_femur_tarsal.pixmap() is None or self.example_img_femur_tarsal.pixmap().isNull():
+                self.example_img_femur_tarsal.setText("[Add example image here]")
+                self.example_img_femur_tarsal.setStyleSheet(_placeholder_style)
+            layout.addWidget(self.example_img_femur_tarsal)
+            ref1 = QLabel(
+                "Source: X-ray of leg (femur, tibia, ankle). Nizil Shah, CC BY-SA 4.0. "
+                "commons.wikimedia.org/wiki/File:X_ray_internal_fixation_leg_fracture.jpg"
+            )
+            ref1.setWordWrap(True)
+            ref1.setStyleSheet("color: #555; font-size: 10px; margin-top: 2px;")
+            layout.addWidget(ref1)
+
+            ex2_caption = QLabel("Question: \"Is the Pelvis strictly above the Femur?\" → Answer: No (the patient's pelvis is overlapping the patient's femur).")
+            ex2_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 14px;")
+            layout.addWidget(ex2_caption)
+            self.example_img_pelvis_femur = QLabel()
+            self.example_img_pelvis_femur.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.example_img_pelvis_femur.setFixedHeight(_img_height)
+            self.example_img_pelvis_femur.setStyleSheet(_img_style)
+            pelvis_femur_path = _img_dir / "pelvis_femur_ct.jpg"
+            if pelvis_femur_path.exists():
+                pix = QPixmap(str(pelvis_femur_path))
+                if not pix.isNull():
+                    self.example_img_pelvis_femur.setPixmap(
+                        pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
+                    )
+            if self.example_img_pelvis_femur.pixmap() is None or self.example_img_pelvis_femur.pixmap().isNull():
+                self.example_img_pelvis_femur.setText("[Add example image here]")
+                self.example_img_pelvis_femur.setStyleSheet(_placeholder_style)
+            layout.addWidget(self.example_img_pelvis_femur)
+            ref2 = QLabel(
+                "Source: 3D rendered CT of bony pelvis. Mikael Häggström, CC0 (Public Domain). "
+                "commons.wikimedia.org/wiki/File:3D_rendered_CT_of_bony_pelvis_2.jpg"
+            )
+            ref2.setWordWrap(True)
+            ref2.setStyleSheet("color: #555; font-size: 10px; margin-top: 2px;")
+            layout.addWidget(ref2)
+
+        proceed_btn = QPushButton("Proceed")
+        proceed_btn.setStyleSheet(
             """
             QPushButton {
                 background-color: #007aff; color: white; border: none; border-radius: 8px;
@@ -576,8 +726,12 @@ class DefinitionDialog(QDialog):
             QPushButton:pressed { background-color: #0051d5; }
             """
         )
-        understood_btn.clicked.connect(self.accept)
-        layout.addWidget(understood_btn)
+        proceed_btn.clicked.connect(self.accept)
+        layout.addWidget(proceed_btn)
+
+
+def _relation_verb(axis: str) -> str:
+    return "strictly above" if axis == AXIS_VERTICAL else "strictly to the left of"
 
 
 class QueryDialog(QDialog):
@@ -590,14 +744,18 @@ class QueryDialog(QDialog):
         self,
         poset_builder: PosetBuilder,
         autosave_path: Path,
+        axis: str,
+        save_callback: Callable[[str, List[Structure], Set[Tuple[int, int]]], None],
     ) -> None:
         super().__init__()
-        self.setWindowTitle("Expert Query — Anatomical Poset")
+        self.setWindowTitle("Expert Query")
         self.resize(520, 420)
         self.setModal(False)
 
         self.poset_builder = poset_builder
         self._autosave_path = autosave_path
+        self._axis = axis
+        self._save_callback = save_callback
         self.pending_pair: Tuple[int, int] | None = None
         self._answer_history: List[Tuple[int, int, bool]] = []
 
@@ -709,21 +867,11 @@ class QueryDialog(QDialog):
         self._advance_to_next_query()
 
     def _autosave_poset(self) -> None:
-        if not self._autosave_path:
+        if not self._autosave_path or not self._save_callback:
             return
         try:
-            self._autosave_path.parent.mkdir(parents=True, exist_ok=True)
             structures, edges = self.poset_builder.get_final_relations()
-
-            # Use fixed path (replaces same file each time)
-            save_path = self._autosave_path
-
-            # TODO Uncomment below to save timestamped files instead (no overwrite): #################################################
-            # base = self._autosave_path.stem.replace(".poset_autosave", "")
-            # ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            # save_path = self._autosave_path.parent / f"{base}_{ts}.poset_autosave.json"
-
-            save_poset_to_json(str(save_path), structures, edges)
+            self._save_callback(self._axis, structures, edges)
         except Exception:
             pass
 
@@ -743,7 +891,8 @@ class QueryDialog(QDialog):
             return
         i, j = pair
         si, sj = self.poset_builder.structures[i], self.poset_builder.structures[j]
-        self.query_label.setText(f"Is the {si.name} strictly above the {sj.name}?")
+        verb = _relation_verb(self._axis)
+        self.query_label.setText(f"Is the {si.name} {verb} the {sj.name}?")
         self.progress_bar.setValue(int(self.poset_builder.get_iteration_progress() * 100))
 
     def answer_query(self, is_above: bool) -> None:
@@ -767,7 +916,8 @@ class QueryDialog(QDialog):
         self.poset_builder.current_i = last_i + 1
         self.pending_pair = (last_i, last_j)
         si, sj = self.poset_builder.structures[last_i], self.poset_builder.structures[last_j]
-        self.query_label.setText(f"(Correcting) Is the {si.name} strictly above the {sj.name}?")
+        verb = _relation_verb(self._axis)
+        self.query_label.setText(f"(Correcting) Is the {si.name} {verb} the {sj.name}?")
         self.yes_btn.setEnabled(True)
         self.no_btn.setEnabled(True)
         if not self._answer_history:
@@ -778,7 +928,7 @@ class QueryDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self, input_path: Optional[str] = None) -> None:
         super().__init__()
-        self.setWindowTitle("Anatomical Poset Builder (Head → Toes)")
+        self.setWindowTitle("Anatomical Poset Builder")
         self.resize(520, 500)
 
         # Remember optional input path for use during UI setup
@@ -789,6 +939,8 @@ class MainWindow(QMainWindow):
 
         self.poset_builder: PosetBuilder | None = None
         self._viewer_windows: List[QWidget] = []
+        self._edges_vertical: Set[Tuple[int, int]] = set()
+        self._edges_frontal: Set[Tuple[int, int]] = set()
 
         self._init_ui()
 
@@ -800,24 +952,40 @@ class MainWindow(QMainWindow):
         left_group = QGroupBox("Anatomical Structures (Input)")
         left_layout = QVBoxLayout(left_group)
 
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Name", "CoM (vertical axis, arbitrary units)"])
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([
+            "Name",
+            "CoM vertical",
+            "CoM lateral",
+        ])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         left_layout.addWidget(self.table)
 
+        btn_row = QHBoxLayout()
         load_btn = QPushButton("Load Structures")
         load_btn.clicked.connect(self.load_structures_dialog)
-        left_layout.addWidget(load_btn)
-
-        add_remove_row = QHBoxLayout()
         add_row_btn = QPushButton("+ Add Structure")
         add_row_btn.clicked.connect(self.add_structure_row)
         remove_row_btn = QPushButton("− Remove Selected")
         remove_row_btn.clicked.connect(self.remove_selected_row)
-        add_remove_row.addWidget(add_row_btn)
-        add_remove_row.addWidget(remove_row_btn)
-        left_layout.addLayout(add_remove_row)
+        view_btn = QPushButton("View Posets")
+        view_btn.clicked.connect(self._open_viewer)
+        btn_row.addWidget(load_btn)
+        btn_row.addWidget(add_row_btn)
+        btn_row.addWidget(remove_row_btn)
+        btn_row.addWidget(view_btn)
+        left_layout.addLayout(btn_row)
+
+        # Axis choice: run vertical or frontal poset construction
+        axis_group = QGroupBox("Axis for this run:")
+        axis_layout = QVBoxLayout(axis_group)
+        self.axis_vertical_rb = QRadioButton("Vertical (head–toes) — \"strictly above\"")
+        self.axis_vertical_rb.setChecked(True)
+        self.axis_frontal_rb = QRadioButton("Frontal (left–right) — \"strictly to the left of\"")
+        axis_layout.addWidget(self.axis_vertical_rb)
+        axis_layout.addWidget(self.axis_frontal_rb)
+        left_layout.addWidget(axis_group)
 
         self.start_btn = QPushButton("▶  Start Poset Construction")
         self.start_btn.setStyleSheet(
@@ -838,10 +1006,6 @@ class MainWindow(QMainWindow):
         self.start_btn.clicked.connect(self.start_poset_construction)
         left_layout.addWidget(self.start_btn)
 
-        view_btn = QPushButton("View Poset")
-        view_btn.clicked.connect(self._open_viewer)
-        left_layout.addWidget(view_btn)
-
         root_layout.addWidget(left_group)
 
         self.setCentralWidget(central)
@@ -856,8 +1020,10 @@ class MainWindow(QMainWindow):
             self._autosave_path = self._builtposet_output_path(Path(load_path))
             try:
                 structures = load_structures_from_json(load_path)
+                self._edges_vertical = set()
+                self._edges_frontal = set()
                 for s in structures:
-                    self.add_structure_row(s.name, str(s.com_vertical))
+                    self.add_structure_row(s.name, str(s.com_vertical), str(s.com_lateral))
             except Exception as exc:  # noqa: BLE001
                 QMessageBox.warning(
                     self,
@@ -871,28 +1037,25 @@ class MainWindow(QMainWindow):
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir / f"{input_path.stem}.poset_autosave.json"
 
-    def _autosave_poset(self) -> None:
-        """
-        Persist the current best-known poset (transitively reduced)
-        to a JSON file after each question / correction.
-        """
-        if not self.poset_builder or not self._autosave_path:
+    def _on_poset_autosave(
+        self, axis: str, structures: List[Structure], edges: Set[Tuple[int, int]]
+    ) -> None:
+        """Called by QueryDialog on each answer; updates the correct edge set and saves both axes."""
+        if not self._autosave_path:
             return
         try:
             self._autosave_path.parent.mkdir(parents=True, exist_ok=True)
-            structures, edges = self.poset_builder.get_final_relations()
-
-            # Use fixed path (replaces same file each time)
-            save_path = self._autosave_path
-
-            # TODO Uncomment below to save timestamped files instead (no overwrite): #################################################
-            # base = self._autosave_path.stem.replace(".poset_autosave", "")
-            # ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            # save_path = self._autosave_path.parent / f"{base}_{ts}.poset_autosave.json"
-
-            save_poset_to_json(str(save_path), structures, edges)
+            if axis == AXIS_VERTICAL:
+                self._edges_vertical = edges
+            else:
+                self._edges_frontal = edges
+            save_poset_to_json(
+                str(self._autosave_path),
+                structures,
+                self._edges_vertical,
+                self._edges_frontal,
+            )
         except Exception:
-            # Autosave failures should not break the interactive session
             pass
 
     # -------- Structure table helpers -------- #
@@ -908,8 +1071,10 @@ class MainWindow(QMainWindow):
         try:
             structures = load_structures_from_json(path)
             self.table.setRowCount(0)
+            self._edges_vertical = set()
+            self._edges_frontal = set()
             for s in structures:
-                self.add_structure_row(s.name, str(s.com_vertical))
+                self.add_structure_row(s.name, str(s.com_vertical), str(s.com_lateral))
             self._autosave_path = self._builtposet_output_path(Path(path))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(
@@ -918,13 +1083,14 @@ class MainWindow(QMainWindow):
                 f"Could not load structures from:\n{path}\n\n{exc}",
             )
 
-    def add_structure_row(self, name: str = "", com: str = "") -> None:
+    def add_structure_row(
+        self, name: str = "", com_vertical: str = "", com_lateral: str = ""
+    ) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
-        name_item = QTableWidgetItem(name)
-        com_item = QTableWidgetItem(com)
-        self.table.setItem(row, 0, name_item)
-        self.table.setItem(row, 1, com_item)
+        self.table.setItem(row, 0, QTableWidgetItem(name))
+        self.table.setItem(row, 1, QTableWidgetItem(com_vertical))
+        self.table.setItem(row, 2, QTableWidgetItem(com_lateral))
 
     def remove_selected_row(self) -> None:
         rows = {idx.row() for idx in self.table.selectedIndexes()}
@@ -936,27 +1102,35 @@ class MainWindow(QMainWindow):
 
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 0)
-            com_item = self.table.item(row, 1)
-            if not name_item or not com_item:
+            com_v_item = self.table.item(row, 1)
+            com_l_item = self.table.item(row, 2)
+            if not name_item:
                 continue
-
             name = name_item.text().strip()
-            com_text = com_item.text().strip()
-
-            if not name or not com_text:
+            com_v_text = (com_v_item.text() if com_v_item else "").strip()
+            com_l_text = (com_l_item.text() if com_l_item else "").strip()
+            if not name:
                 continue
-
+            if not com_v_text:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Input",
+                    f"Row {row + 1}: CoM vertical is required.",
+                )
+                return None
             try:
-                com_vertical = float(com_text)
+                com_vertical = float(com_v_text)
+                com_lateral = float(com_l_text) if com_l_text else 0.0
             except ValueError:
                 QMessageBox.warning(
                     self,
                     "Invalid Input",
-                    f"Row {row + 1}: CoM must be a number.",
+                    f"Row {row + 1}: CoM values must be numbers.",
                 )
                 return None
-
-            structures.append(Structure(name=name, com_vertical=com_vertical))
+            structures.append(
+                Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral)
+            )
 
         if not structures:
             QMessageBox.warning(
@@ -974,13 +1148,18 @@ class MainWindow(QMainWindow):
         if structures is None:
             return
 
-        self.poset_builder = PosetBuilder(structures)
+        axis = AXIS_VERTICAL if self.axis_vertical_rb.isChecked() else AXIS_FRONTAL
+        self.poset_builder = PosetBuilder(structures, axis=axis)
         self.start_btn.setEnabled(False)
 
-        # Show definition first; questions start after user clicks Understood
-        def_dialog = DefinitionDialog()
+        def_dialog = DefinitionDialog(axis=axis)
         if def_dialog.exec() == QDialog.DialogCode.Accepted:
-            query_dialog = QueryDialog(self.poset_builder, self._autosave_path)
+            query_dialog = QueryDialog(
+                self.poset_builder,
+                self._autosave_path,
+                axis=axis,
+                save_callback=self._on_poset_autosave,
+            )
             query_dialog.finished.connect(lambda: self.start_btn.setEnabled(True))
             query_dialog.show()
         else:
@@ -1018,10 +1197,11 @@ def main() -> None:
     Where structures.json has:
     {
       "structures": [
-        {"name": "Skull", "com_vertical": 90.0},
+        {"name": "Skull", "com_vertical": 90.0, "com_lateral": 0.0},
         ...
       ]
     }
+    com_lateral is optional (default 0).
     """
     _ensure_qt_platform_plugin_path()
 
