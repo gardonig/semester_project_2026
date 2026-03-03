@@ -21,15 +21,14 @@ Bridge classical anatomical knowledge with modern deep learning to create accura
 
 ### Setup
 1. Clone or download this repository.
-2. Install dependencies:
-   ```bash
-   pip install PySide6
-   ```
-   Or with a virtual environment:
+2. (Recommended) create and activate a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate   # on Windows: venv\Scripts\activate
-   pip install PySide6
+   ```
+3. Install dependencies from `requirements.txt`:
+   ```bash
+   pip install -r requirements.txt
    ```
 
 ### Run the application
@@ -46,11 +45,15 @@ Input JSON format (e.g. `Input_CoM_structures/test_structures.json`):
 ```json
 {
   "structures": [
-    {"name": "Skull", "com_vertical": 90.0},
-    {"name": "Spine", "com_vertical": 70.0}
+    {"name": "Skull", "com_vertical": 90.0, "com_lateral": 0.0},
+    {"name": "Spine", "com_vertical": 70.0, "com_lateral": 0.0}
   ]
 }
 ```
+
+- **`com_vertical`**: CoM along the superior–inferior (vertical) axis.
+- **`com_lateral`**: CoM along the left–right (frontal) axis (patient’s perspective: smaller = left, larger = right).  
+  If `com_lateral` is omitted, it is treated as `0.0`.
 
 Output posets are saved under `Output_constructed_posets/` (autosave during each query).
 
@@ -62,26 +65,51 @@ Output posets are saved under `Output_constructed_posets/` (autosave during each
 
 | Button | Action |
 |--------|--------|
-| **Load Structures** | Opens a file dialog to load a JSON file of structures (name + CoM on vertical axis). Fills the table and sets the autosave path from the loaded file. |
-| **+ Add Structure** | Appends a new empty row to the table. Enter name and CoM value manually. |
+| **Load Structures** | Opens a file dialog to load a JSON file of structures (`name`, `com_vertical`, `com_lateral`). Fills the table and sets the autosave path from the loaded file. |
+| **+ Add Structure** | Appends a new empty row to the table. Enter name, vertical CoM, and lateral CoM manually. |
 | **− Remove Selected** | Deletes the currently selected table row(s). |
-| **▶ Start Poset Construction** | Validates the table, builds the poset from your structures, then shows the **Definition** dialog. After you click *Understood*, opens the **Expert Query** window with Yes/No questions. Disabled until the query session is closed. Progress is autosaved after each answer. |
-| **View Poset** | Opens a file dialog to pick a saved poset JSON file, then opens the **Poset Viewer** (list of structures + edges and interactive Hasse diagram). |
+| **View Poset** | Opens a file dialog to pick a saved poset JSON file (typically from `Output_constructed_posets/`), then opens the **Poset Viewer** (list of structures + Hasse diagrams for vertical and frontal axes). |
+| **▶ Start Poset Construction** | Validates the table, lets you choose the **axis for this run** (vertical “strictly above” or frontal “strictly to the left of”), shows the **Definition** dialog, and then opens the **Expert Query** window with Yes/No questions. Disabled until the query session is closed. Progress is autosaved after each answer. |
+
+Below the table you also choose the **axis for this run** (Vertical / Frontal). Left/right are always interpreted from the **patient’s perspective**.
 
 ### Definition dialog (before questions)
 
 | Button | Action |
 |--------|--------|
-| **Understood** | Closes the definition dialog and starts the query session (Expert Query window). |
+| **Proceed** | Closes the definition dialog and starts the query session (Expert Query window). |
+
+The dialog:
+- Welcomes the user and explains the goal of the questionnaire.
+- States the assumption of **standard anatomical position** (e.g. supine, arms supinated/standard) and that left/right and above/below refer to this reference.
+- Defines the chosen relation for this run:
+  - Vertical: “**strictly above**”.
+  - Frontal: “**strictly to the left of**”.
+- Shows concrete examples (“Question: Is the … → Answer: …”) and, for the vertical axis, example images with attributions.
 
 ### Expert Query window (questions)
 
 | Button | Action |
 |--------|--------|
 | **← Undo** | Reverts the last answer: removes that relation from the poset and shows the same question again. Disabled when there is no previous answer. |
-| **Yes** | Records that the *first* structure in the question is strictly above the *second* (adds the relation), then advances to the next question. |
-| **No** | Records that the first is *not* strictly above the second, then advances to the next question. |
+| **Yes** | Records that the *first* structure in the question stands in the **strict relation for the chosen axis** to the *second* (strictly above for vertical runs, strictly to the left of for frontal runs), then advances to the next question. |
+| **No** | Records that the first structure is **not** in that strict relation to the second, then advances to the next question. |
 | **Done** | Shown when all queries are finished. Closes the Expert Query window and re-enables **Start Poset Construction** in the main window. |
+
+The questions are shown one per “card” with a flip animation between questions and a small progress bar indicating how far through the fixed pair-iteration you are (it can jump when many pairs are implied by transitivity).
+
+---
+
+## Code structure (high level)
+
+- **`Structure` (dataclass)**: Represents one anatomical structure with `name`, `com_vertical`, and `com_lateral` (patient-view left/right).
+- **`load_structures_from_json` / `save_poset_to_json` / `load_poset_from_json`**: I/O helpers for reading the structure list and saving/loading posets (both vertical and frontal edges in a single JSON).
+- **`PosetBuilder`**: Core algorithm; sorts structures by the chosen axis, iterates gap-wise over pairs, skips relations implied by transitivity, records answers, and returns the **transitive reduction** (Hasse edges).
+- **`HasseDiagramView`**: `QGraphicsView` that renders the Hasse diagram; vertical axis diagrams group by level top–down, frontal axis diagrams place nodes by `com_lateral` (left/right) along the x-axis.
+- **`PosetViewerWindow`**: Standalone viewer for saved posets with two tabs: **Vertical** and **Frontal**, each with a structure list and an interactive Hasse diagram.
+- **`DefinitionDialog`**: Intro + instructions + examples shown before querying; text and examples are adapted to the selected axis.
+- **`QueryDialog`**: The questionnaire window: shows one pair at a time, collects Yes/No answers, supports Undo, drives autosave, shows progress, and ends with a thank-you message.
+- **`MainWindow`**: Entry point UI for defining structures, choosing the axis for the current run, launching the questionnaire, and opening the viewer.
 
 ## Related Models
 - [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)

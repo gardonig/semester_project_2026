@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+
 def _ensure_qt_platform_plugin_path() -> None:
     """
     macOS fix for:
@@ -64,22 +65,28 @@ def _ensure_qt_platform_plugin_path() -> None:
 class Structure:
     """A node in the poset: an anatomical structure (organ, bone, muscle, etc.)."""
     name: str
-    com_vertical: float   # Center of Mass along vertical (superior–inferior) axis
-    com_lateral: float = 0.0  # Center of Mass along frontal (left–right) axis; left = smaller, right = larger; patient's perspective
+    com_vertical: float   # Center of Mass along vertical (superior–inferior, top–bottom) axis
+    com_lateral: float  # Center of Mass along mediolateral (left–right) axis; left = smaller, right = larger; patient's perspective
+    com_anteroposterior: float  # Center of Mass along anteroposterior (front–back) axis; anterior = smaller, posterior = larger
 
 
 def load_structures_from_json(path: str) -> List[Structure]:
     """
     Load a list of structures from a JSON file.
 
-    Expected format:
+    Expected format (newest version):
     {
       "structures": [
-        {"name": "Skull", "com_vertical": 90.0, "com_lateral": 0.0},
+        {
+          "name": "Skull",
+          "com_vertical": 90.0,          # top–bottom (superior–inferior)
+          "com_lateral": 0.0,            # left–right (mediolateral), patient's perspective
+          "com_anteroposterior": 0.0     # front–back (anteroposterior), anterior < posterior
+        },
         ...
       ]
     }
-    com_lateral is optional (default 0.0). Left/right are from the patient's perspective (smaller = left, larger = right).
+    Older files may omit com_lateral and/or com_anteroposterior; both default to 0.0.
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -90,9 +97,17 @@ def load_structures_from_json(path: str) -> List[Structure]:
             name = str(item["name"])
             com_vertical = float(item["com_vertical"])
             com_lateral = float(item.get("com_lateral", 0.0))
+            com_ap = float(item.get("com_anteroposterior", 0.0))
         except (KeyError, TypeError, ValueError):
             continue
-        structures.append(Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral))
+        structures.append(
+            Structure(
+                name=name,
+                com_vertical=com_vertical,
+                com_lateral=com_lateral,
+                com_anteroposterior=com_ap,
+            )
+        )
     return structures
 
 
@@ -100,24 +115,53 @@ def save_poset_to_json(
     path: str,
     structures: List[Structure],
     edges_vertical: Set[Tuple[int, int]],
-    edges_frontal: Set[Tuple[int, int]] | None = None,
+    edges_mediolateral: Set[Tuple[int, int]] | None = None,
+    edges_anteroposterior: Set[Tuple[int, int]] | None = None,
 ) -> None:
     """
-    Save poset(s) to JSON. Both axes stored in one file.
+    Save poset(s) to JSON. All axes stored in one file.
 
-    Format:
+    Format (keys added over time; extra keys are ignored by loaders):
     {
-      "structures": [{"name": ..., "com_vertical": ..., "com_lateral": ...}, ...],
-      "edges_vertical": [[u, v], ...],
-      "edges_frontal": [[u, v], ...]
+      "structures": [
+        {
+          "name": "...",
+          "com_vertical": ...,
+          "com_lateral": ...,
+          "com_anteroposterior": ...
+        },
+        ...
+      ],
+      "edges_vertical": [[u, v], ...],          # top–bottom (superior–inferior)
+      "edges_mediolateral": [[u, v], ...],      # left–right (mediolateral, patient's view)
+      "edges_anteroposterior": [[u, v], ...],   # front–back (anteroposterior)
+      "adjacency_vertical": [[0/1, ...], ...],          # optional
+      "adjacency_mediolateral": [[0/1, ...], ...],      # optional
+      "adjacency_anteroposterior": [[0/1, ...], ...]    # optional
     }
     """
-    if edges_frontal is None:
-        edges_frontal = set()
+    if edges_mediolateral is None:
+        edges_mediolateral = set()
+    if edges_anteroposterior is None:
+        edges_anteroposterior = set()
+
+    n = len(structures)
+
+    def _edges_to_adj_matrix(num_nodes: int, edges: Set[Tuple[int, int]]) -> list[list[int]]:
+        mat = [[0 for _ in range(num_nodes)] for _ in range(num_nodes)]
+        for u, v in edges:
+            if 0 <= u < num_nodes and 0 <= v < num_nodes:
+                mat[u][v] = 1
+        return mat
+
     payload = {
         "structures": [asdict(s) for s in structures],
         "edges_vertical": [[int(u), int(v)] for (u, v) in sorted(edges_vertical)],
-        "edges_frontal": [[int(u), int(v)] for (u, v) in sorted(edges_frontal)],
+        "edges_mediolateral": [[int(u), int(v)] for (u, v) in sorted(edges_mediolateral)],
+        "edges_anteroposterior": [[int(u), int(v)] for (u, v) in sorted(edges_anteroposterior)],
+        "adjacency_vertical": _edges_to_adj_matrix(n, edges_vertical),
+        "adjacency_mediolateral": _edges_to_adj_matrix(n, edges_mediolateral),
+        "adjacency_anteroposterior": _edges_to_adj_matrix(n, edges_anteroposterior),
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
@@ -125,13 +169,23 @@ def save_poset_to_json(
 
 def load_poset_from_json(
     path: str,
-) -> Tuple[List[Structure], Set[Tuple[int, int]], Set[Tuple[int, int]]]:
-    """Load poset(s) from JSON. Returns (structures, edges_vertical, edges_frontal). Backward compat: 'edges' -> edges_vertical."""
+) -> Tuple[List[Structure], Set[Tuple[int, int]], Set[Tuple[int, int]], Set[Tuple[int, int]]]:
+    """
+    Load poset(s) from JSON.
+
+    Returns:
+      (structures, edges_vertical, edges_mediolateral, edges_anteroposterior)
+
+    Backward compatibility:
+    - Older files may only contain "edges" (treated as vertical) or lack anteroposterior edges.
+    """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     structures_data = data.get("structures", [])
     edges_v_data = data.get("edges_vertical", data.get("edges", []))
-    edges_f_data = data.get("edges_frontal", [])
+    # Backward compat: older files used edges_frontal for the left–right axis
+    edges_ml_data = data.get("edges_mediolateral", data.get("edges_frontal", []))
+    edges_ap_data = data.get("edges_anteroposterior", [])
 
     structures: List[Structure] = []
     for item in structures_data:
@@ -139,9 +193,17 @@ def load_poset_from_json(
             name = str(item["name"])
             com_vertical = float(item["com_vertical"])
             com_lateral = float(item.get("com_lateral", 0.0))
+            com_ap = float(item.get("com_anteroposterior", 0.0))
         except (KeyError, TypeError, ValueError):
             continue
-        structures.append(Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral))
+        structures.append(
+            Structure(
+                name=name,
+                com_vertical=com_vertical,
+                com_lateral=com_lateral,
+                com_anteroposterior=com_ap,
+            )
+        )
 
     def parse_edges(edges_data: list) -> Set[Tuple[int, int]]:
         out: Set[Tuple[int, int]] = set()
@@ -153,11 +215,16 @@ def load_poset_from_json(
                 continue
         return out
 
-    return structures, parse_edges(edges_v_data), parse_edges(edges_f_data)
+    return (
+        structures,
+        parse_edges(edges_v_data),
+        parse_edges(edges_ml_data),
+        parse_edges(edges_ap_data),
+    )
 
 
 class PosetViewerWindow(QWidget):
-    """View saved poset(s): tabular data + Hasse diagram per axis (Vertical / Frontal)."""
+    """View saved poset(s): tabular data + Hasse diagram per axis (Vertical / Mediolateral / Anteroposterior)."""
 
     def __init__(self, poset_path: str) -> None:
         super().__init__()
@@ -167,7 +234,8 @@ class PosetViewerWindow(QWidget):
         self._path = poset_path
         self._structures: List[Structure] = []
         self._edges_vertical: Set[Tuple[int, int]] = set()
-        self._edges_frontal: Set[Tuple[int, int]] = set()
+        self._edges_mediolateral: Set[Tuple[int, int]] = set()
+        self._edges_anteroposterior: Set[Tuple[int, int]] = set()
 
         self._tabs = QTabWidget()
         root = QVBoxLayout(self)
@@ -191,8 +259,12 @@ class PosetViewerWindow(QWidget):
         for idx, s in enumerate(structures):
             if axis_label == "Vertical":
                 list_widget.addItem(f"  {idx}: {s.name} (CoM vertical = {s.com_vertical})")
-            else:
-                list_widget.addItem(f"  {idx}: {s.name} (CoM lateral = {s.com_lateral})")
+            elif axis_label == "Mediolateral":
+                list_widget.addItem(f"  {idx}: {s.name} (CoM mediolateral = {s.com_lateral})")
+            else:  # Anteroposterior
+                list_widget.addItem(
+                    f"  {idx}: {s.name} (CoM anteroposterior = {s.com_anteroposterior})"
+                )
         list_widget.addItem("")
         if not edges:
             list_widget.addItem(f"No strict '{relation_label}' relations recorded.")
@@ -201,12 +273,23 @@ class PosetViewerWindow(QWidget):
             for u, v in sorted(edges):
                 su, sv = structures[u], structures[v]
                 list_widget.addItem(f"{su.name}  ≻  {sv.name}")
-        axis = AXIS_FRONTAL if axis_label == "Frontal" else AXIS_VERTICAL
+
+        if axis_label == "Vertical":
+            axis = AXIS_VERTICAL
+        elif axis_label == "Mediolateral":
+            axis = AXIS_MEDIOLATERAL
+        else:
+            axis = AXIS_ANTERIOR_POSTERIOR
         hasse_view.draw_diagram(structures, edges, axis=axis)
 
     def _load(self, path: str) -> None:
         try:
-            self._structures, self._edges_vertical, self._edges_frontal = load_poset_from_json(path)
+            (
+                self._structures,
+                self._edges_vertical,
+                self._edges_mediolateral,
+                self._edges_anteroposterior,
+            ) = load_poset_from_json(path)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
                 self,
@@ -215,7 +298,7 @@ class PosetViewerWindow(QWidget):
             )
             return
 
-        # Tab: Vertical
+        # Tab: Vertical (top–bottom)
         vert_widget = QWidget()
         vert_layout = QHBoxLayout(vert_widget)
         vert_list_group = QGroupBox("Poset Data")
@@ -230,32 +313,62 @@ class PosetViewerWindow(QWidget):
         vert_layout.addWidget(vert_list_group, stretch=1)
         vert_layout.addWidget(vert_diagram_group, stretch=2)
         self._fill_tab(
-            vert_list, vert_hasse,
-            self._structures, self._edges_vertical,
-            "Vertical", "above",
+            vert_list,
+            vert_hasse,
+            self._structures,
+            self._edges_vertical,
+            "Vertical",
+            "above",
         )
-        self._tabs.addTab(vert_widget, "Vertical (head–toes)")
+        self._tabs.addTab(vert_widget, "Vertical (top–bottom)")
 
-        # Tab: Frontal
-        front_widget = QWidget()
-        front_layout = QHBoxLayout(front_widget)
-        front_list_group = QGroupBox("Poset Data")
-        front_list_layout = QVBoxLayout(front_list_group)
-        front_list = QListWidget()
-        front_list_layout.addWidget(front_list)
-        front_diagram_group = QGroupBox("Hasse Diagram")
-        front_diagram_layout = QVBoxLayout(front_diagram_group)
-        front_hasse = HasseDiagramView()
-        front_hasse.setMinimumSize(400, 300)
-        front_diagram_layout.addWidget(front_hasse)
-        front_layout.addWidget(front_list_group, stretch=1)
-        front_layout.addWidget(front_diagram_group, stretch=2)
+        # Tab: Mediolateral (left–right)
+        ml_widget = QWidget()
+        ml_layout = QHBoxLayout(ml_widget)
+        ml_list_group = QGroupBox("Poset Data")
+        ml_list_layout = QVBoxLayout(ml_list_group)
+        ml_list = QListWidget()
+        ml_list_layout.addWidget(ml_list)
+        ml_diagram_group = QGroupBox("Hasse Diagram")
+        ml_diagram_layout = QVBoxLayout(ml_diagram_group)
+        ml_hasse = HasseDiagramView()
+        ml_hasse.setMinimumSize(400, 300)
+        ml_diagram_layout.addWidget(ml_hasse)
+        ml_layout.addWidget(ml_list_group, stretch=1)
+        ml_layout.addWidget(ml_diagram_group, stretch=2)
         self._fill_tab(
-            front_list, front_hasse,
-            self._structures, self._edges_frontal,
-            "Frontal", "to the left of",
+            ml_list,
+            ml_hasse,
+            self._structures,
+            self._edges_mediolateral,
+            "Mediolateral",
+            "to the left of",
         )
-        self._tabs.addTab(front_widget, "Frontal (left–right, patient's view)")
+        self._tabs.addTab(ml_widget, "Mediolateral (left–right, patient's view)")
+
+        # Tab: Anteroposterior (front–back)
+        ap_widget = QWidget()
+        ap_layout = QHBoxLayout(ap_widget)
+        ap_list_group = QGroupBox("Poset Data")
+        ap_list_layout = QVBoxLayout(ap_list_group)
+        ap_list = QListWidget()
+        ap_list_layout.addWidget(ap_list)
+        ap_diagram_group = QGroupBox("Hasse Diagram")
+        ap_diagram_layout = QVBoxLayout(ap_diagram_group)
+        ap_hasse = HasseDiagramView()
+        ap_hasse.setMinimumSize(400, 300)
+        ap_diagram_layout.addWidget(ap_hasse)
+        ap_layout.addWidget(ap_list_group, stretch=1)
+        ap_layout.addWidget(ap_diagram_group, stretch=2)
+        self._fill_tab(
+            ap_list,
+            ap_hasse,
+            self._structures,
+            self._edges_anteroposterior,
+            "Anteroposterior",
+            "in front of",
+        )
+        self._tabs.addTab(ap_widget, "Anteroposterior (front–back)")
 
 
 class HasseDiagramView(QGraphicsView):
@@ -348,33 +461,22 @@ class HasseDiagramView(QGraphicsView):
 
         positions: Dict[int, QPointF] = {}
 
-        if axis == "frontal":
-            # Frontal: x = lateral position (left on left, right on right), y = level
-            lat_vals = [structures[i].com_lateral for i in range(n)]
-            min_lat = min(lat_vals)
-            max_lat = max(lat_vals)
-            width_span = max((n - 1) * h_spacing, 1.0)
-            for node in range(n):
-                y = levels[node] * v_spacing
-                if max_lat > min_lat:
-                    norm = (structures[node].com_lateral - min_lat) / (max_lat - min_lat)
-                    x = (norm - 0.5) * width_span
-                else:
-                    x = 0.0
+        # Layout like a standard layered Hasse diagram for both axes:
+        # - y coordinate encodes level
+        # - x coordinate spreads nodes within each level
+        # The axis only affects which relation is encoded in the edges; the geometry is identical.
+        for lvl in range(0, max_level + 1):
+            nodes_at_level = level_nodes.get(lvl, [])
+            if not nodes_at_level:
+                continue
+            nodes_sorted = sorted(nodes_at_level)
+            count = len(nodes_sorted)
+            total_width = (count - 1) * h_spacing
+            start_x = -total_width / 2.0
+            y = lvl * v_spacing
+            for idx, node in enumerate(nodes_sorted):
+                x = start_x + idx * h_spacing
                 positions[node] = QPointF(x, y)
-        else:
-            # Vertical: x spread by index within level, y = level
-            for lvl in range(0, max_level + 1):
-                nodes_at_level = level_nodes.get(lvl, [])
-                if not nodes_at_level:
-                    continue
-                count = len(nodes_at_level)
-                total_width = (count - 1) * h_spacing
-                start_x = -total_width / 2.0
-                y = lvl * v_spacing
-                for idx, node in enumerate(sorted(nodes_at_level)):
-                    x = start_x + idx * h_spacing
-                    positions[node] = QPointF(x, y)
 
         # Draw edges first so they appear behind nodes
         edge_pen = QPen(QColor(80, 80, 80))
@@ -425,8 +527,9 @@ class HasseDiagramView(QGraphicsView):
         # Fit everything in view initially
         self.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
-AXIS_VERTICAL = "vertical"
-AXIS_FRONTAL = "frontal"
+AXIS_VERTICAL = "vertical"  # top–bottom (superior–inferior)
+AXIS_MEDIOLATERAL = "mediolateral"  # left–right (patient's view)
+AXIS_ANTERIOR_POSTERIOR = "anteroposterior"  # front–back (anteroposterior)
 
 
 class PosetBuilder:
@@ -437,8 +540,10 @@ class PosetBuilder:
     """
 
     def __init__(self, structures: List[Structure], axis: str = AXIS_VERTICAL) -> None:
-        if axis == AXIS_FRONTAL:
+        if axis == AXIS_MEDIOLATERAL:
             key = lambda s: s.com_lateral
+        elif axis == AXIS_ANTERIOR_POSTERIOR:
+            key = lambda s: s.com_anteroposterior
         else:
             key = lambda s: s.com_vertical
         self.structures: List[Structure] = sorted(structures, key=key, reverse=True)
@@ -478,10 +583,11 @@ class PosetBuilder:
                     stack.append(v)
         return False
 
-    def transitive_reduction(self) -> Set[Tuple[int, int]]:
+    def edge_redundancy_reduction(self) -> Set[Tuple[int, int]]:
         """
-        Naive O(V * E * (V + E)) transitive reduction.
-        Fine for small N (e.g., <= 50).
+        Remove redundant edges implied by transitivity (naive O(V * E * (V + E)) algorithm).
+        This is the transitive reduction of the current directed acyclic graph and yields
+        exactly the cover relations used in the (directed) Hasse diagram.
         """
         reduced: Set[Tuple[int, int]] = set(self.edges)
         for u, v in list(self.edges):
@@ -546,10 +652,10 @@ class PosetBuilder:
 
     def get_final_relations(self) -> Tuple[List[Structure], Set[Tuple[int, int]]]:
         """
-        Run transitive reduction and return the sorted structures
+        Run edge redundancy reduction (transitive reduction) and return the sorted structures
         and the minimal set of cover relations (Hasse diagram edges).
         """
-        reduced_edges = self.transitive_reduction()
+        reduced_edges = self.edge_redundancy_reduction()
         return self.structures, reduced_edges
 
 
@@ -571,151 +677,52 @@ class DefinitionDialog(QDialog):
 
         # All text: dark on white (no grey backgrounds)
         _text_style = "color: #1a1a1a; font-size: 14px; padding: 6px 0;"
-        _heading_style = "color: #1a1a1a; font-weight: bold; font-size: 15px; padding: 10px 0 4px 0;"
 
-        # ---- 1. Welcome and intro (first) ----
+        # ---- 1. Welcome + anatomical position (side-by-side) ----
         welcome_heading = QLabel("Welcome to the Anatomical Structure Questionnaire")
         welcome_heading.setStyleSheet("color: #1a1a1a; font-weight: bold; font-size: 18px; padding: 0 0 12px 0;")
         layout.addWidget(welcome_heading)
+
         intro_text = (
             "Thank you for taking part. In this questionnaire you will be asked to compare pairs of "
             "anatomical structures and indicate whether one is strictly above the other (vertical axis) or "
-            "strictly to the left of the other (frontal axis). Your answers help us build a spatial ordering "
+            "strictly to the left of the other (mediolateral axis). Your answers help us build a spatial ordering "
             "that can be used to check and correct automatic segmentations. There are no wrong answers—we need "
             "your clinical judgement.\n\n"
-            "We assume the patient is in standard anatomical position (e.g. supine for imaging, arms supinated or "
-            "in standard clinical position). Left/right and above/below refer to this reference.\n\n"
+            "We assume the patient is in standard anatomical position, as shown in the figure. "
             "If you have any questions, please do not hesitate to reach out to Gian or Güney."
         )
         intro_label = QLabel(intro_text)
         intro_label.setWordWrap(True)
         intro_label.setStyleSheet(_text_style)
-        layout.addWidget(intro_label)
 
-        # ---- 2. Definition ----
-        if axis == AXIS_FRONTAL:
-            def_heading = QLabel("Definition: \"strictly to the left of\"")
-            def_heading.setStyleSheet(_heading_style)
-            layout.addWidget(def_heading)
-            def_text = (
-                "One structure is strictly to the left of another if the rightmost point "
-                "of the first is to the left of the leftmost point of the second (left–right / frontal axis)."
-            )
-            def_label = QLabel(def_text)
-            def_label.setWordWrap(True)
-            def_label.setStyleSheet(_text_style)
-            layout.addWidget(def_label)
-            patient_note = QLabel(
-                "Left and right are from the patient's perspective: the patient's right (e.g. right femur) "
-                "is to the right of the patient's left (e.g. left femur)."
-            )
-            patient_note.setWordWrap(True)
-            patient_note.setStyleSheet(_text_style)
-            layout.addWidget(patient_note)
-        else:
-            def_heading = QLabel("Definition: \"strictly above\"")
-            def_heading.setStyleSheet(_heading_style)
-            layout.addWidget(def_heading)
-            def_text = (
-                "One structure is strictly above another if the lowest point of the upper structure "
-                "is higher than the highest point of the lower one (head–to–toes / vertical axis)."
-            )
-            def_label = QLabel(def_text)
-            def_label.setWordWrap(True)
-            def_label.setStyleSheet(_text_style)
-            layout.addWidget(def_label)
+        anatomy_img = QLabel()
+        anatomy_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        anatomy_img.setFixedHeight(220)
+        anatomy_path = Path(__file__).resolve().parent / "assets" / "definition_images" / "anatomical_postion.png"
+        if anatomy_path.exists():
+            anatomy_pix = QPixmap(str(anatomy_path))
+            if not anatomy_pix.isNull():
+                anatomy_img.setPixmap(
+                    anatomy_pix.scaledToHeight(220, Qt.SmoothTransformation)
+                )
+        if anatomy_img.pixmap() is None or anatomy_img.pixmap().isNull():
+            anatomy_img.setText("[Anatomical position diagram missing]")
+        # Put text and image side-by-side
+        intro_row = QHBoxLayout()
+        intro_row.addWidget(intro_label, stretch=3)
+        intro_row.addWidget(anatomy_img, stretch=2)
+        layout.addLayout(intro_row)
 
-        # ---- 3. Examples (one section: question/answer wording + image placeholders for both axes) ----
-        examples_heading = QLabel("Examples")
-        examples_heading.setStyleSheet("color: #1a1a1a; font-weight: bold; font-size: 15px; padding: 14px 0 4px 0;")
-        layout.addWidget(examples_heading)
+        anatomy_ref = QLabel("Images in this window are captured from Complete Anatomy.")
+        anatomy_ref.setWordWrap(True)
+        anatomy_ref.setStyleSheet("color: #555; font-size: 10px; margin-top: 2px;")
+        layout.addWidget(anatomy_ref)
 
-        _script_dir = Path(__file__).resolve().parent
-        _img_dir = _script_dir / "assets" / "definition_images"
-        _img_height = 140
-        _img_style = (
-            "border: 1px solid #cccccc; border-radius: 8px; margin-top: 6px; "
-            "background: #ffffff;"
-        )
-        _placeholder_style = (
-            "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
-            "color: #444; font-size: 13px; background: #ffffff;"
-        )
+        layout.addStretch(1)
 
-        if axis == AXIS_FRONTAL:
-            # Frontal: image placeholders
-            ph1_caption = QLabel("Question: \"Is the Left femur strictly to the left of the Right femur?\" "
-                "→ Answer: Yes (the patient's left femur is to the left of the patient's right femur).")
-            ph1_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 10px;")
-            layout.addWidget(ph1_caption)
-            ph1 = QLabel("[Add example image here]")
-            ph1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ph1.setFixedHeight(_img_height)
-            ph1.setStyleSheet(_placeholder_style)
-            layout.addWidget(ph1)
-            ph2_caption = QLabel("Is the left femur strictly to the left of the pelvis? → Answer: No (the patient's left femur is overlapping the patient's pelvis).")
-            ph2_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 14px;")
-            layout.addWidget(ph2_caption)
-            ph2 = QLabel("[Add example image here]")
-            ph2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ph2.setFixedHeight(_img_height)
-            ph2.setStyleSheet(_placeholder_style)
-            layout.addWidget(ph2)
-        else:
-            # Vertical: two example images (with fallback placeholder if missing)
-            ex1_caption = QLabel("Question: \"Is the Femur strictly above the Tibia?\" → Answer: Yes.")
-            ex1_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 10px;")
-            layout.addWidget(ex1_caption)
-            self.example_img_femur_tarsal = QLabel()
-            self.example_img_femur_tarsal.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.example_img_femur_tarsal.setFixedHeight(_img_height)
-            self.example_img_femur_tarsal.setStyleSheet(_img_style)
-            femur_tarsal_path = _img_dir / "femur_tarsal_leg.jpg"
-            if femur_tarsal_path.exists():
-                pix = QPixmap(str(femur_tarsal_path))
-                if not pix.isNull():
-                    self.example_img_femur_tarsal.setPixmap(
-                        pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
-                    )
-            if self.example_img_femur_tarsal.pixmap() is None or self.example_img_femur_tarsal.pixmap().isNull():
-                self.example_img_femur_tarsal.setText("[Add example image here]")
-                self.example_img_femur_tarsal.setStyleSheet(_placeholder_style)
-            layout.addWidget(self.example_img_femur_tarsal)
-            ref1 = QLabel(
-                "Source: X-ray of leg (femur, tibia, ankle). Nizil Shah, CC BY-SA 4.0. "
-                "commons.wikimedia.org/wiki/File:X_ray_internal_fixation_leg_fracture.jpg"
-            )
-            ref1.setWordWrap(True)
-            ref1.setStyleSheet("color: #555; font-size: 10px; margin-top: 2px;")
-            layout.addWidget(ref1)
-
-            ex2_caption = QLabel("Question: \"Is the Pelvis strictly above the Femur?\" → Answer: No (the patient's pelvis is overlapping the patient's femur).")
-            ex2_caption.setStyleSheet("color: #1a1a1a; font-size: 14px; margin-top: 14px;")
-            layout.addWidget(ex2_caption)
-            self.example_img_pelvis_femur = QLabel()
-            self.example_img_pelvis_femur.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.example_img_pelvis_femur.setFixedHeight(_img_height)
-            self.example_img_pelvis_femur.setStyleSheet(_img_style)
-            pelvis_femur_path = _img_dir / "pelvis_femur_ct.jpg"
-            if pelvis_femur_path.exists():
-                pix = QPixmap(str(pelvis_femur_path))
-                if not pix.isNull():
-                    self.example_img_pelvis_femur.setPixmap(
-                        pix.scaledToHeight(_img_height, Qt.SmoothTransformation)
-                    )
-            if self.example_img_pelvis_femur.pixmap() is None or self.example_img_pelvis_femur.pixmap().isNull():
-                self.example_img_pelvis_femur.setText("[Add example image here]")
-                self.example_img_pelvis_femur.setStyleSheet(_placeholder_style)
-            layout.addWidget(self.example_img_pelvis_femur)
-            ref2 = QLabel(
-                "Source: 3D rendered CT of bony pelvis. Mikael Häggström, CC0 (Public Domain). "
-                "commons.wikimedia.org/wiki/File:3D_rendered_CT_of_bony_pelvis_2.jpg"
-            )
-            ref2.setWordWrap(True)
-            ref2.setStyleSheet("color: #555; font-size: 10px; margin-top: 2px;")
-            layout.addWidget(ref2)
-
-        proceed_btn = QPushButton("Proceed")
+        # Proceed button, right-bottom
+        proceed_btn = QPushButton("Understood")
         proceed_btn.setStyleSheet(
             """
             QPushButton {
@@ -727,11 +734,417 @@ class DefinitionDialog(QDialog):
             """
         )
         proceed_btn.clicked.connect(self.accept)
-        layout.addWidget(proceed_btn)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(proceed_btn)
+        layout.addLayout(btn_row)
+
+
+class VerticalDefinitionDialog(QDialog):
+    """
+    Dedicated window for the vertical 'strictly above' definition and examples.
+    Shown only when the vertical axis is selected; user presses 'Proceed' to start questions.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Definition — Vertical \"strictly above\"")
+        self.resize(820, 520)
+        self.setModal(True)
+        self.setStyleSheet("background-color: #ffffff;")
+
+        root = QHBoxLayout(self)
+
+        _text_style = "color: #1a1a1a; font-size: 14px; padding: 4px 0;"
+        _heading_style = "color: #1a1a1a; font-weight: bold; font-size: 16px; padding: 4px 0 4px 0;"
+
+        # Left column: text (task, definition, question form)
+        left_col = QVBoxLayout()
+        root.addLayout(left_col, stretch=3)
+
+        heading = QLabel("Vertical relation: \"strictly above\"")
+        heading.setStyleSheet(_heading_style)
+        left_col.addWidget(heading)
+
+        text1 = QLabel(
+            "You will be asked whether one anatomical structure is strictly above another "
+            "along the superior–inferior (head–to–toes) axis."
+        )
+        text1.setWordWrap(True)
+        text1.setStyleSheet(_text_style)
+        left_col.addWidget(text1)
+
+        text2 = QLabel(
+            "Definition: one structure is strictly above another if the lowest point of the upper structure "
+            "is higher than the highest point of the lower one."
+        )
+        text2.setWordWrap(True)
+        text2.setStyleSheet(_text_style)
+        left_col.addWidget(text2)
+
+        q_form_heading = QLabel("What you will be asked")
+        q_form_heading.setStyleSheet(_heading_style)
+        left_col.addWidget(q_form_heading)
+
+        q_form = QLabel(
+            "For each pair of structures you will answer \"Yes\" or \"No\" to:\n"
+            "  \"Is the first structure strictly above the second?\""
+        )
+        q_form.setWordWrap(True)
+        q_form.setStyleSheet(_text_style)
+        left_col.addWidget(q_form)
+
+        left_col.addStretch(1)
+
+        proceed_btn = QPushButton("Understood")
+        proceed_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #007aff; color: white; border: none; border-radius: 8px;
+                padding: 10px 22px; font-size: 15px;
+            }
+            QPushButton:hover { background-color: #5ac8fa; }
+            QPushButton:pressed { background-color: #0051d5; }
+            """
+        )
+        proceed_btn.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(proceed_btn)
+        left_col.addLayout(btn_row)
+
+        # Right column: large example images (No example first, then Yes)
+        right_col = QVBoxLayout()
+        root.addLayout(right_col, stretch=4)
+
+        _script_dir = Path(__file__).resolve().parent
+        _img_dir = _script_dir / "assets" / "definition_images"
+        img_height = 320
+
+        img_style = (
+            "border: 1px solid #cccccc; border-radius: 8px; margin-top: 6px; "
+            "background: #ffffff;"
+        )
+        placeholder_style = (
+            "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
+            "color: #444; font-size: 13px; background: #ffffff;"
+        )
+
+        # No example first: text above image (Femur–Tibia)
+        no_text = QLabel("Example 1 (No): \"Is the Femur strictly above the Tibia?\" → Answer: No.")
+        no_text.setWordWrap(True)
+        no_text.setStyleSheet(_text_style)
+        right_col.addWidget(no_text)
+
+        no_label = QLabel()
+        no_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        no_label.setFixedHeight(img_height)
+        no_label.setStyleSheet(img_style)
+        no_path = _img_dir / "example_vert_No.png"
+        if no_path.exists():
+            pix = QPixmap(str(no_path))
+            if not pix.isNull():
+                no_label.setPixmap(
+                    pix.scaledToHeight(img_height, Qt.SmoothTransformation)
+                )
+        if no_label.pixmap() is None or no_label.pixmap().isNull():
+            no_label.setText("[Add vertical No example image here]")
+            no_label.setStyleSheet(placeholder_style)
+        right_col.addWidget(no_label)
+
+        # Yes example second: text above image (Femur–Fibula)
+        yes_text = QLabel("Example 2 (Yes): \"Is the Femur strictly above the Fibula?\" → Answer: Yes.")
+        yes_text.setWordWrap(True)
+        yes_text.setStyleSheet(_text_style)
+        yes_text.setContentsMargins(0, 12, 0, 0)
+        right_col.addWidget(yes_text)
+
+        yes_label = QLabel()
+        yes_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        yes_label.setFixedHeight(img_height)
+        yes_label.setStyleSheet(img_style)
+        yes_path = _img_dir / "eample_vert_Yes.png"
+        if yes_path.exists():
+            pix = QPixmap(str(yes_path))
+            if not pix.isNull():
+                yes_label.setPixmap(
+                    pix.scaledToHeight(img_height, Qt.SmoothTransformation)
+                )
+        if yes_label.pixmap() is None or yes_label.pixmap().isNull():
+            yes_label.setText("[Add vertical Yes example image here]")
+            yes_label.setStyleSheet(placeholder_style)
+        right_col.addWidget(yes_label)
+
+        source = QLabel("Images in this window are captured from Complete Anatomy.")
+        source.setWordWrap(True)
+        source.setStyleSheet("color: #555; font-size: 10px; margin-top: 4px;")
+        right_col.addWidget(source)
+
+
+class MediolateralDefinitionDialog(QDialog):
+    """
+    Dedicated window for the mediolateral (left–right) 'strictly to the left of' definition and examples.
+    Shown only when the mediolateral axis is selected; user presses 'Proceed' to start questions.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Definition — Mediolateral \"strictly to the left of\"")
+        self.resize(820, 520)
+        self.setModal(True)
+        self.setStyleSheet("background-color: #ffffff;")
+
+        root = QHBoxLayout(self)
+
+        _text_style = "color: #1a1a1a; font-size: 14px; padding: 4px 0;"
+        _heading_style = "color: #1a1a1a; font-weight: bold; font-size: 16px; padding: 4px 0 4px 0;"
+
+        # Left column: text (task, definition, question form)
+        left_col = QVBoxLayout()
+        root.addLayout(left_col, stretch=3)
+
+        heading = QLabel("Mediolateral relation: \"strictly to the left of\"")
+        heading.setStyleSheet(_heading_style)
+        left_col.addWidget(heading)
+
+        text1 = QLabel(
+            "You will be asked whether one anatomical structure is strictly to the left of another "
+            "along the left–right (mediolateral) axis, from the patient's perspective."
+        )
+        text1.setWordWrap(True)
+        text1.setStyleSheet(_text_style)
+        left_col.addWidget(text1)
+
+        text2 = QLabel(
+            "Definition: one structure is strictly to the left of another if the rightmost point of the first "
+            "is to the left of the leftmost point of the second."
+        )
+        text2.setWordWrap(True)
+        text2.setStyleSheet(_text_style)
+        left_col.addWidget(text2)
+
+        patient_note = QLabel(
+            "Left and right are always defined from the patient's view: "
+            "the patient's right femur is to the right of the patient's left femur."
+        )
+        patient_note.setWordWrap(True)
+        patient_note.setStyleSheet(_text_style)
+        left_col.addWidget(patient_note)
+
+        q_form_heading = QLabel("What you will be asked")
+        q_form_heading.setStyleSheet(_heading_style)
+        left_col.addWidget(q_form_heading)
+
+        q_form = QLabel(
+            "For each pair of structures you will answer \"Yes\" or \"No\" to:\n"
+            "  \"Is the first structure strictly to the left of the second?\""
+        )
+        q_form.setWordWrap(True)
+        q_form.setStyleSheet(_text_style)
+        left_col.addWidget(q_form)
+
+        left_col.addStretch(1)
+
+        proceed_btn = QPushButton("Proceed")
+        proceed_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #007aff; color: white; border: none; border-radius: 8px;
+                padding: 10px 22px; font-size: 15px;
+            }
+            QPushButton:hover { background-color: #5ac8fa; }
+            QPushButton:pressed { background-color: #0051d5; }
+            """
+        )
+        proceed_btn.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(proceed_btn)
+        left_col.addLayout(btn_row)
+
+        # Right column: textual examples + placeholder images
+        right_col = QVBoxLayout()
+        root.addLayout(right_col, stretch=4)
+
+        _script_dir = Path(__file__).resolve().parent
+        _img_dir = _script_dir / "assets" / "definition_images"
+        img_height = 260
+
+        img_style = (
+            "border: 1px solid #cccccc; border-radius: 8px; margin-top: 6px; "
+            "background: #ffffff;"
+        )
+        placeholder_style = (
+            "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
+            "color: #444; font-size: 13px; background: #ffffff;"
+        )
+
+        # Example 1 (Yes): Left vs Right femur
+        ex1_text = QLabel(
+            "Example 1 (Yes): \"Is the Left femur strictly to the left of the Right femur?\" "
+            "→ Answer: Yes (from the patient's perspective)."
+        )
+        ex1_text.setWordWrap(True)
+        ex1_text.setStyleSheet(_text_style)
+        right_col.addWidget(ex1_text)
+
+        ex1_img = QLabel()
+        ex1_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ex1_img.setFixedHeight(img_height)
+        ex1_img.setStyleSheet(img_style)
+        # Placeholder only for now
+        ex1_img.setText("[Add mediolateral Yes example image here]")
+        ex1_img.setStyleSheet(placeholder_style)
+        right_col.addWidget(ex1_img)
+
+        # Example 2 (No): Left femur vs pelvis (overlap)
+        ex2_text = QLabel(
+            "Example 2 (No): \"Is the Left femur strictly to the left of the pelvis?\" "
+            "→ Answer: No (they overlap in the mediolateral direction)."
+        )
+        ex2_text.setWordWrap(True)
+        ex2_text.setStyleSheet(_text_style)
+        ex2_text.setContentsMargins(0, 12, 0, 0)
+        right_col.addWidget(ex2_text)
+
+        ex2_img = QLabel()
+        ex2_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ex2_img.setFixedHeight(img_height)
+        ex2_img.setStyleSheet(img_style)
+        # Placeholder only for now
+        ex2_img.setText("[Add mediolateral No example image here]")
+        ex2_img.setStyleSheet(placeholder_style)
+        right_col.addWidget(ex2_img)
+
+        source = QLabel("Images in this window are captured from Complete Anatomy (mediolateral examples to be added).")
+        source.setWordWrap(True)
+        source.setStyleSheet("color: #555; font-size: 10px; margin-top: 4px;")
+        right_col.addWidget(source)
+
+
+class AnteroposteriorDefinitionDialog(QDialog):
+    """
+    Dedicated window for the anteroposterior (front–back) 'strictly in front of' definition and examples.
+    Shown only when the anteroposterior axis is selected; user presses 'Proceed' to start questions.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Definition — Anteroposterior \"strictly in front of\"")
+        self.resize(820, 520)
+        self.setModal(True)
+        self.setStyleSheet("background-color: #ffffff;")
+
+        root = QHBoxLayout(self)
+
+        _text_style = "color: #1a1a1a; font-size: 14px; padding: 4px 0;"
+        _heading_style = "color: #1a1a1a; font-weight: bold; font-size: 16px; padding: 4px 0 4px 0;"
+
+        # Left column: text (task, definition, question form)
+        left_col = QVBoxLayout()
+        root.addLayout(left_col, stretch=3)
+
+        heading = QLabel("Anteroposterior relation: \"strictly in front of\"")
+        heading.setStyleSheet(_heading_style)
+        left_col.addWidget(heading)
+
+        text1 = QLabel(
+            "You will be asked whether one anatomical structure is strictly in front of another "
+            "along the front–back (anteroposterior) axis."
+        )
+        text1.setWordWrap(True)
+        text1.setStyleSheet(_text_style)
+        left_col.addWidget(text1)
+
+        text2 = QLabel(
+            "Definition: one structure is strictly in front of another if the posterior-most point of the first "
+            "is anterior to the anterior-most point of the second."
+        )
+        text2.setWordWrap(True)
+        text2.setStyleSheet(_text_style)
+        left_col.addWidget(text2)
+
+        q_form_heading = QLabel("What you will be asked")
+        q_form_heading.setStyleSheet(_heading_style)
+        left_col.addWidget(q_form_heading)
+
+        q_form = QLabel(
+            "For each pair of structures you will answer \"Yes\" or \"No\" to:\n"
+            "  \"Is the first structure strictly in front of the second?\""
+        )
+        q_form.setWordWrap(True)
+        q_form.setStyleSheet(_text_style)
+        left_col.addWidget(q_form)
+
+        left_col.addStretch(1)
+
+        proceed_btn = QPushButton("Proceed")
+        proceed_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #007aff; color: white; border: none; border-radius: 8px;
+                padding: 10px 22px; font-size: 15px;
+            }
+            QPushButton:hover { background-color: #5ac8fa; }
+            QPushButton:pressed { background-color: #0051d5; }
+            """
+        )
+        proceed_btn.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(proceed_btn)
+        left_col.addLayout(btn_row)
+
+        # Right column: textual examples + placeholder images
+        right_col = QVBoxLayout()
+        root.addLayout(right_col, stretch=4)
+
+        img_height = 260
+
+        placeholder_style = (
+            "border: 1px dashed #bbbbbb; border-radius: 8px; margin-top: 6px; "
+            "color: #444; font-size: 13px; background: #ffffff;"
+        )
+
+        ex1_text = QLabel(
+            "Example 1 (Yes): \"Is the sternum strictly in front of the spine?\" → Answer: Yes."
+        )
+        ex1_text.setWordWrap(True)
+        ex1_text.setStyleSheet(_text_style)
+        right_col.addWidget(ex1_text)
+
+        ex1_img = QLabel("[Add anteroposterior Yes example image here]")
+        ex1_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ex1_img.setFixedHeight(img_height)
+        ex1_img.setStyleSheet(placeholder_style)
+        right_col.addWidget(ex1_img)
+
+        ex2_text = QLabel(
+            "Example 2 (No): \"Is the spine strictly in front of the sternum?\" → Answer: No."
+        )
+        ex2_text.setWordWrap(True)
+        ex2_text.setStyleSheet(_text_style)
+        ex2_text.setContentsMargins(0, 12, 0, 0)
+        right_col.addWidget(ex2_text)
+
+        ex2_img = QLabel("[Add anteroposterior No example image here]")
+        ex2_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ex2_img.setFixedHeight(img_height)
+        ex2_img.setStyleSheet(placeholder_style)
+        right_col.addWidget(ex2_img)
+
+        source = QLabel("Images in this window are captured from Complete Anatomy (anteroposterior examples to be added).")
+        source.setWordWrap(True)
+        source.setStyleSheet("color: #555; font-size: 10px; margin-top: 4px;")
+        right_col.addWidget(source)
 
 
 def _relation_verb(axis: str) -> str:
-    return "strictly above" if axis == AXIS_VERTICAL else "strictly to the left of"
+    if axis == AXIS_VERTICAL:
+        return "strictly above"
+    if axis == AXIS_MEDIOLATERAL:
+        return "strictly to the left of"
+    return "strictly in front of"
 
 
 class QueryDialog(QDialog):
@@ -940,7 +1353,8 @@ class MainWindow(QMainWindow):
         self.poset_builder: PosetBuilder | None = None
         self._viewer_windows: List[QWidget] = []
         self._edges_vertical: Set[Tuple[int, int]] = set()
-        self._edges_frontal: Set[Tuple[int, int]] = set()
+        self._edges_mediolateral: Set[Tuple[int, int]] = set()
+        self._edges_anteroposterior: Set[Tuple[int, int]] = set()
 
         self._init_ui()
 
@@ -952,11 +1366,12 @@ class MainWindow(QMainWindow):
         left_group = QGroupBox("Anatomical Structures (Input)")
         left_layout = QVBoxLayout(left_group)
 
-        self.table = QTableWidget(0, 3)
+        self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels([
             "Name",
             "CoM vertical",
-            "CoM lateral",
+            "CoM mediolateral",
+            "CoM anteroposterior",
         ])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
@@ -977,14 +1392,16 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(view_btn)
         left_layout.addLayout(btn_row)
 
-        # Axis choice: run vertical or frontal poset construction
+        # Axis choice: run vertical, mediolateral, or anteroposterior poset construction
         axis_group = QGroupBox("Axis for this run:")
         axis_layout = QVBoxLayout(axis_group)
-        self.axis_vertical_rb = QRadioButton("Vertical (head–toes) — \"strictly above\"")
+        self.axis_vertical_rb = QRadioButton("Vertical (top–bottom, superior–inferior) — \"strictly above\"")
         self.axis_vertical_rb.setChecked(True)
-        self.axis_frontal_rb = QRadioButton("Frontal (left–right) — \"strictly to the left of\"")
+        self.axis_frontal_rb = QRadioButton("Mediolateral (left–right, patient's view) — \"strictly to the left of\"")
+        self.axis_ap_rb = QRadioButton("Anteroposterior (front–back) — \"strictly in front of\"")
         axis_layout.addWidget(self.axis_vertical_rb)
         axis_layout.addWidget(self.axis_frontal_rb)
+        axis_layout.addWidget(self.axis_ap_rb)
         left_layout.addWidget(axis_group)
 
         self.start_btn = QPushButton("▶  Start Poset Construction")
@@ -1021,9 +1438,15 @@ class MainWindow(QMainWindow):
             try:
                 structures = load_structures_from_json(load_path)
                 self._edges_vertical = set()
-                self._edges_frontal = set()
+                self._edges_anteroposterior = set()
+                self._edges_mediolateral = set()
                 for s in structures:
-                    self.add_structure_row(s.name, str(s.com_vertical), str(s.com_lateral))
+                    self.add_structure_row(
+                        s.name,
+                        str(s.com_vertical),
+                        str(s.com_lateral),
+                        str(s.com_anteroposterior),
+                    )
             except Exception as exc:  # noqa: BLE001
                 QMessageBox.warning(
                     self,
@@ -1040,20 +1463,23 @@ class MainWindow(QMainWindow):
     def _on_poset_autosave(
         self, axis: str, structures: List[Structure], edges: Set[Tuple[int, int]]
     ) -> None:
-        """Called by QueryDialog on each answer; updates the correct edge set and saves both axes."""
+        """Called by QueryDialog on each answer; updates the correct edge set and saves all axes."""
         if not self._autosave_path:
             return
         try:
             self._autosave_path.parent.mkdir(parents=True, exist_ok=True)
             if axis == AXIS_VERTICAL:
                 self._edges_vertical = edges
+            elif axis == AXIS_MEDIOLATERAL:
+                self._edges_mediolateral = edges
             else:
-                self._edges_frontal = edges
+                self._edges_anteroposterior = edges
             save_poset_to_json(
                 str(self._autosave_path),
                 structures,
                 self._edges_vertical,
-                self._edges_frontal,
+                self._edges_mediolateral,
+                self._edges_anteroposterior,
             )
         except Exception:
             pass
@@ -1072,9 +1498,15 @@ class MainWindow(QMainWindow):
             structures = load_structures_from_json(path)
             self.table.setRowCount(0)
             self._edges_vertical = set()
-            self._edges_frontal = set()
+            self._edges_mediolateral = set()
+            self._edges_anteroposterior = set()
             for s in structures:
-                self.add_structure_row(s.name, str(s.com_vertical), str(s.com_lateral))
+                self.add_structure_row(
+                    s.name,
+                    str(s.com_vertical),
+                    str(s.com_lateral),
+                    str(s.com_anteroposterior),
+                )
             self._autosave_path = self._builtposet_output_path(Path(path))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(
@@ -1084,13 +1516,18 @@ class MainWindow(QMainWindow):
             )
 
     def add_structure_row(
-        self, name: str = "", com_vertical: str = "", com_lateral: str = ""
+        self,
+        name: str = "",
+        com_vertical: str = "",
+        com_lateral: str = "",
+        com_anteroposterior: str = "",
     ) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(name))
         self.table.setItem(row, 1, QTableWidgetItem(com_vertical))
         self.table.setItem(row, 2, QTableWidgetItem(com_lateral))
+        self.table.setItem(row, 3, QTableWidgetItem(com_anteroposterior))
 
     def remove_selected_row(self) -> None:
         rows = {idx.row() for idx in self.table.selectedIndexes()}
@@ -1104,11 +1541,13 @@ class MainWindow(QMainWindow):
             name_item = self.table.item(row, 0)
             com_v_item = self.table.item(row, 1)
             com_l_item = self.table.item(row, 2)
+            com_ap_item = self.table.item(row, 3)
             if not name_item:
                 continue
             name = name_item.text().strip()
             com_v_text = (com_v_item.text() if com_v_item else "").strip()
             com_l_text = (com_l_item.text() if com_l_item else "").strip()
+            com_ap_text = (com_ap_item.text() if com_ap_item else "").strip()
             if not name:
                 continue
             if not com_v_text:
@@ -1121,6 +1560,7 @@ class MainWindow(QMainWindow):
             try:
                 com_vertical = float(com_v_text)
                 com_lateral = float(com_l_text) if com_l_text else 0.0
+                com_ap = float(com_ap_text) if com_ap_text else 0.0
             except ValueError:
                 QMessageBox.warning(
                     self,
@@ -1129,7 +1569,12 @@ class MainWindow(QMainWindow):
                 )
                 return None
             structures.append(
-                Structure(name=name, com_vertical=com_vertical, com_lateral=com_lateral)
+                Structure(
+                    name=name,
+                    com_vertical=com_vertical,
+                    com_lateral=com_lateral,
+                    com_anteroposterior=com_ap,
+                )
             )
 
         if not structures:
@@ -1148,22 +1593,41 @@ class MainWindow(QMainWindow):
         if structures is None:
             return
 
-        axis = AXIS_VERTICAL if self.axis_vertical_rb.isChecked() else AXIS_FRONTAL
+        if self.axis_vertical_rb.isChecked():
+            axis = AXIS_VERTICAL
+        elif self.axis_frontal_rb.isChecked():
+            axis = AXIS_MEDIOLATERAL
+        else:
+            axis = AXIS_ANTERIOR_POSTERIOR
         self.poset_builder = PosetBuilder(structures, axis=axis)
         self.start_btn.setEnabled(False)
 
-        def_dialog = DefinitionDialog(axis=axis)
-        if def_dialog.exec() == QDialog.DialogCode.Accepted:
-            query_dialog = QueryDialog(
-                self.poset_builder,
-                self._autosave_path,
-                axis=axis,
-                save_callback=self._on_poset_autosave,
-            )
-            query_dialog.finished.connect(lambda: self.start_btn.setEnabled(True))
-            query_dialog.show()
-        else:
+        # 1) Generic welcome/instructions window (always shown)
+        welcome_dialog = DefinitionDialog(axis=axis)
+        if welcome_dialog.exec() != QDialog.DialogCode.Accepted:
             self.start_btn.setEnabled(True)
+            return
+
+        # 2) Axis-specific definition window
+        if axis == AXIS_VERTICAL:
+            axis_dialog: QDialog = VerticalDefinitionDialog()
+        elif axis == AXIS_MEDIOLATERAL:
+            axis_dialog = MediolateralDefinitionDialog()
+        else:
+            axis_dialog = AnteroposteriorDefinitionDialog()
+        if axis_dialog.exec() != QDialog.DialogCode.Accepted:
+            self.start_btn.setEnabled(True)
+            return
+
+        # 3) Start the query dialog
+        query_dialog = QueryDialog(
+            self.poset_builder,
+            self._autosave_path,
+            axis=axis,
+            save_callback=self._on_poset_autosave,
+        )
+        query_dialog.finished.connect(lambda: self.start_btn.setEnabled(True))
+        query_dialog.show()
 
     def _open_viewer(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
