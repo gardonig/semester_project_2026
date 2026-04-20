@@ -1,0 +1,45 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+.medsam_venv/
+.vibeseg_venv/
+.totalseg_venv
+
+# Cloned external tool repositories (re-clone from setup scripts)
+tools/
+
+# Segmentation outputs from external tools
+data/imaging_datasets
+data/posets/tests/*
+data/posets/merged_sessions/*
+data/totalseg_output
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Project specific data
+# We ignore the output files so user data isn't pushed to the repository
+data/Output_constructed_posets/*.json
+assets/visible_human_male/
+
+# Large generated tensors (keep directory, ignore contents)
+assets/visible_human_tensors/*
+!assets/visible_human_tensors/.gitkeep
+
+# Keep the directory structure but ignore the contents
+!data/Output_constructed_posets/.gitkeep
+
+# instruction documents
+scripts/generate_instructions_docx.py
+Anatomical_Poset_Builder_Instructions.docx
+
+requirements_totalseg.txt
+requirements_medsam.txt
+requirements_vibeseg.txt
