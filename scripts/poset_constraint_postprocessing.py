@@ -169,6 +169,7 @@ def apply_constraints_gt_free(
     predictions: Dict[str, np.ndarray],
     poset:       PosetFromJson,
     asmap:       Dict[str, Tuple[int, int]],
+    aggressive:  bool = False,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, int]]:
     """
     GT-free constraint cleaning via connected component analysis.
@@ -176,10 +177,11 @@ def apply_constraints_gt_free(
     For each constraint "A is strictly above B":
       1. Extract B's largest connected component (LCC) as the trusted reference.
       2. Find all connected components of A.
-      3. Remove any non-LCC component of A that lies *entirely* below B's LCC
-         inferior boundary — these are disconnected false positives in the wrong zone.
+      3. For each non-LCC component of A, check against B's LCC superior boundary:
+           conservative (default): remove if the entire blob is below B's top.
+           aggressive:             remove if any part of the blob is below B's top.
 
-    Conservative: A's own LCC is never removed, even if it violates the constraint.
+    A's own LCC is never removed in either mode.
     """
     constrained    = {name: mask.copy() for name, mask in predictions.items()}
     voxels_removed = {name: 0 for name in predictions}
@@ -206,7 +208,7 @@ def apply_constraints_gt_free(
                 if not mask_i.any() or not mask_j.any():
                     continue
 
-                # Trusted inferior boundary of j
+                # Superior boundary (top) of j's LCC
                 ext_j = axis_extent(largest_connected_component(mask_j), vox_ax)
                 if ext_j is None:
                     continue
@@ -230,13 +232,14 @@ def apply_constraints_gt_free(
                         continue
                     c_min, c_max = ext_c
 
-                    # Entire component must be in the violation zone to be removed
                     if sign == +1:
-                        entirely_violated = c_max < min_j  # all of comp below j's bottom
+                        # conservative: whole blob below B's top
+                        # aggressive:   any part of blob below B's top
+                        violated = c_max < max_j if not aggressive else c_min < max_j
                     else:
-                        entirely_violated = c_min > max_j
+                        violated = c_min > min_j if not aggressive else c_max > min_j
 
-                    if entirely_violated:
+                    if violated:
                         removed = int(comp.sum())
                         voxels_removed[name_i] += removed
                         constrained[name_i][comp] = False
@@ -333,6 +336,7 @@ def run_subject(
     gt_format:  str,
     out_dir:    Optional[Path],
     structures: Optional[List[str]] = None,
+    aggressive: bool = False,
 ) -> List[dict]:
 
     subj_pred_dir = pred_dir / subject
@@ -381,7 +385,7 @@ def run_subject(
             gt_masks, gt_affine = load_gt_per_subject(gt_dir, subject, list(common))
 
     # Apply GT-free constraints (connected component analysis)
-    constrained, vox_removed = apply_constraints_gt_free(predictions, poset, asmap)
+    constrained, vox_removed = apply_constraints_gt_free(predictions, poset, asmap, aggressive=aggressive)
 
     # Save cleaned predictions if requested
     if out_dir is not None:
@@ -491,6 +495,9 @@ def parse_args() -> argparse.Namespace:
                    help="Limit to these structure names only")
     p.add_argument("--csv",        default=None,
                    help="Save results table to this CSV file")
+    p.add_argument("--aggressive", action="store_true",
+                   help="Aggressive mode: remove any non-LCC blob that partially overlaps "
+                        "below B's top (default: conservative, only remove blobs entirely below B's top)")
     return p.parse_args()
 
 
@@ -513,7 +520,8 @@ def main() -> None:
     all_rows: List[dict] = []
     for subject in subjects:
         print(f"\n{'='*60}\n  Subject: {subject}\n{'='*60}")
-        rows = run_subject(subject, pred_dir, poset, gt_dir, args.gt_format, out_dir, args.structures)
+        rows = run_subject(subject, pred_dir, poset, gt_dir, args.gt_format, out_dir,
+                           args.structures, aggressive=args.aggressive)
         print_table(rows, with_dice)
         all_rows.extend(rows)
 
