@@ -1,0 +1,2 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0081,femur_left,0.9271,0.9271,0.0,0,194.19,187.39

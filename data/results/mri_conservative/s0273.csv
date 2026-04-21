@@ -1,0 +1,11 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0273,colon,0.9314,0.9314,0.0,0,83.38,81.21
+s0273,femur_left,0.8766,0.8766,0.0,0,6.56,7.61
+s0273,femur_right,0.8844,0.8844,0.0,0,3.62,4.03
+s0273,hip_left,0.8299,0.8299,0.0,0,72.01,78.84
+s0273,hip_right,0.8505,0.8505,0.0,0,75.58,73.0
+s0273,iliac_artery_left,0.7058,0.7058,0.0,0,1.05,0.75
+s0273,iliac_artery_right,0.7164,0.7164,0.0,0,0.85,0.76
+s0273,iliac_vena_left,0.7339,0.7339,0.0,0,2.78,2.19
+s0273,iliac_vena_right,0.7226,0.7226,0.0,0,1.13,1.12
+s0273,urinary_bladder,0.9178,0.9178,0.0,0,116.67,111.74

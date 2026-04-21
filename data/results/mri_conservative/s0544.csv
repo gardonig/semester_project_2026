@@ -1,0 +1,11 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0544,aorta,0.9188,0.9188,0.0,0,103.05,104.54
+s0544,clavicula_left,0.8676,0.8676,0.0,0,3.11,3.16
+s0544,clavicula_right,0.8231,0.8231,0.0,0,3.85,3.7
+s0544,esophagus,0.7136,0.7136,0.0,0,4.28,3.91
+s0544,humerus_left,0.8418,0.8418,0.0,0,16.13,16.03
+s0544,humerus_right,0.8849,0.8849,0.0,0,68.28,69.31
+s0544,inferior_vena_cava,0.8634,0.8634,0.0,0,6.15,6.06
+s0544,liver,0.9431,0.9431,0.0,0,294.05,279.72
+s0544,scapula_left,0.7846,0.7846,0.0,0,12.57,11.43
+s0544,scapula_right,0.7413,0.7413,0.0,0,16.41,14.63

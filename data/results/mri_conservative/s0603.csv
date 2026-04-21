@@ -1,0 +1,15 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0603,adrenal_gland_left,0.7921,0.7921,0.0,0,2.27,2.16
+s0603,adrenal_gland_right,0.8531,0.8531,0.0,0,1.74,1.6
+s0603,aorta,0.9068,0.9068,0.0,0,25.78,26.9
+s0603,autochthon_left,0.9213,0.9213,0.0,0,71.97,70.44
+s0603,autochthon_right,0.896,0.896,0.0,0,63.47,62.58
+s0603,esophagus,0.7478,0.7478,0.0,0,0.48,0.35
+s0603,iliopsoas_left,0.8635,0.8635,0.0,0,5.9,5.48
+s0603,iliopsoas_right,0.8376,0.8376,0.0,0,6.02,5.16
+s0603,inferior_vena_cava,0.8751,0.8751,0.0,0,15.09,15.69
+s0603,kidney_left,0.895,0.895,0.0,0,23.83,23.22
+s0603,kidney_right,0.7469,0.7469,0.0,0,0.41,0.34
+s0603,liver,0.8044,0.8044,0.0,0,73.92,92.66
+s0603,spleen,0.7259,0.7259,0.0,0,2.83,3.44
+s0603,stomach,0.9178,0.9178,0.0,0,36.63,35.26

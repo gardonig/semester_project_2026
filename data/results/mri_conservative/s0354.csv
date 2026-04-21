@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0354,autochthon_left,0.8528,0.8528,0.0,0,74.53,66.38
+s0354,autochthon_right,0.8713,0.8713,0.0,0,54.32,53.47
+s0354,colon,0.8511,0.8511,0.0,0,16.08,15.5
+s0354,iliopsoas_left,0.8674,0.8674,0.0,0,13.74,11.86
+s0354,sacrum,0.8631,0.8631,0.0,0,52.67,52.31

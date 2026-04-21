@@ -1,0 +1,11 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0418,aorta,0.8912,0.8912,0.0,0,6.51,6.77
+s0418,colon,0.8915,0.8915,0.0,0,13.03,12.41
+s0418,humerus_left,0.7873,0.7873,0.0,0,5.41,5.26
+s0418,humerus_right,0.8364,0.8364,0.0,0,17.26,16.76
+s0418,inferior_vena_cava,0.8241,0.8241,0.0,0,1.42,1.48
+s0418,liver,0.9267,0.9267,0.0,0,499.53,505.76
+s0418,pancreas,0.822,0.822,0.0,0,4.8,5.28
+s0418,portal_vein_and_splenic_vein,0.8269,0.8269,0.0,0,0.48,0.35
+s0418,spleen,0.8802,0.8802,0.0,0,50.88,50.38
+s0418,stomach,0.9253,0.9253,0.0,0,69.98,70.2

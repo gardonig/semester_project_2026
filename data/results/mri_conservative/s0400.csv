@@ -1,0 +1,12 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0400,aorta,0.8768,0.8768,0.0,0,32.36,30.97
+s0400,autochthon_left,0.8769,0.8769,0.0,0,39.97,36.03
+s0400,autochthon_right,0.8422,0.8422,0.0,0,16.11,15.29
+s0400,iliac_artery_left,0.7518,0.7518,0.0,0,3.75,4.17
+s0400,iliac_artery_right,0.737,0.737,0.0,0,2.04,1.79
+s0400,iliac_vena_left,0.6589,0.6589,0.0,0,2.13,1.92
+s0400,iliac_vena_right,0.629,0.629,0.0,0,0.44,0.53
+s0400,iliopsoas_left,0.8433,0.8433,0.0,0,9.87,10.0
+s0400,iliopsoas_right,0.8121,0.8121,0.0,0,4.77,5.39
+s0400,inferior_vena_cava,0.7461,0.7461,0.0,0,12.08,12.45
+s0400,sacrum,0.8828,0.8828,0.0,0,87.81,87.45

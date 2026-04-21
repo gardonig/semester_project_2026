@@ -1,0 +1,10 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0484,aorta,0.7428,0.7428,0.0,0,8.34,9.0
+s0484,autochthon_left,0.8823,0.8823,0.0,0,82.51,76.58
+s0484,autochthon_right,0.8307,0.8307,0.0,0,74.9,74.58
+s0484,clavicula_left,0.8453,0.8453,0.0,0,3.13,2.75
+s0484,clavicula_right,0.8242,0.8242,0.0,0,2.16,2.31
+s0484,esophagus,0.7175,0.7175,0.0,0,0.73,0.94
+s0484,iliopsoas_left,0.0,0.0,0.0,0,0.0,1.54
+s0484,iliopsoas_right,0.7806,0.7806,0.0,0,1.39,0.98
+s0484,inferior_vena_cava,0.803,0.803,0.0,0,17.72,17.53

@@ -1,0 +1,5 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0393,autochthon_left,0.7477,0.7477,0.0,0,0.62,0.43
+s0393,autochthon_right,0.8262,0.8262,0.0,0,1.6,1.74
+s0393,brain,0.9556,0.9556,0.0,0,316.94,330.74
+s0393,clavicula_left,0.8049,0.8049,0.0,0,1.34,1.47

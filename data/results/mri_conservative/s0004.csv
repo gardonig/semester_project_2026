@@ -1,0 +1,7 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0004,aorta,0.8171,0.8171,0.0,0,86.17,90.99
+s0004,autochthon_left,0.845,0.845,0.0,0,26.65,21.98
+s0004,autochthon_right,0.9348,0.9348,0.0,0,36.56,36.9
+s0004,iliopsoas_left,0.0,0.0,0.0,0,0.0,3.98
+s0004,iliopsoas_right,0.8862,0.8862,0.0,0,6.14,5.58
+s0004,inferior_vena_cava,0.8461,0.8461,0.0,0,11.14,11.43

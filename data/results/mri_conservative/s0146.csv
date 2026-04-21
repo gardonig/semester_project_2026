@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0146,autochthon_left,0.198,0.198,0.0,0,0.74,6.14
+s0146,autochthon_right,0.3227,0.3227,0.0,0,1.46,7.07
+s0146,clavicula_left,0.0,0.0,0.0,0,0.0,11.39
+s0146,humerus_left,0.9583,0.9583,0.0,0,46.88,46.97
+s0146,scapula_left,0.0,0.0,0.0,0,0.0,36.6

@@ -1,0 +1,7 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0399,aorta,0.824,0.824,0.0,0,63.21,62.79
+s0399,autochthon_left,0.8489,0.8489,0.0,0,74.77,76.53
+s0399,autochthon_right,0.8268,0.8268,0.0,0,67.83,63.5
+s0399,clavicula_left,0.8411,0.8411,0.0,0,4.14,4.56
+s0399,clavicula_right,0.8887,0.8887,0.0,0,4.72,4.48
+s0399,inferior_vena_cava,0.8422,0.8422,0.0,0,5.9,5.33

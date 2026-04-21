@@ -1,0 +1,14 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0596,aorta,0.8202,0.8202,0.0,0,14.4,15.07
+s0596,autochthon_left,0.8715,0.8715,0.0,0,24.78,29.29
+s0596,autochthon_right,0.8885,0.8885,0.0,0,73.55,78.12
+s0596,clavicula_left,0.8346,0.8346,0.0,0,8.19,7.93
+s0596,clavicula_right,0.8902,0.8902,0.0,0,5.43,5.41
+s0596,colon,0.7776,0.7776,0.0,0,5.39,5.38
+s0596,esophagus,0.7227,0.7227,0.0,0,2.22,2.87
+s0596,inferior_vena_cava,0.7822,0.7822,0.0,0,13.9,12.55
+s0596,kidney_left,0.8534,0.8534,0.0,0,15.1,17.47
+s0596,liver,0.8925,0.8925,0.0,0,150.81,155.39
+s0596,pancreas,0.8436,0.8436,0.0,0,19.42,19.85
+s0596,portal_vein_and_splenic_vein,0.7236,0.7236,0.0,0,4.0,4.73
+s0596,stomach,0.9279,0.9279,0.0,0,118.47,122.09

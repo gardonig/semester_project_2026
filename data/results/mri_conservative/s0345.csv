@@ -1,0 +1,11 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0345,colon,0.6917,0.6917,0.0,0,35.19,39.26
+s0345,hip_left,0.726,0.726,0.0,0,19.11,14.02
+s0345,hip_right,0.7681,0.7681,0.0,0,12.2,9.31
+s0345,iliac_artery_left,0.0,0.0,0.0,0,0.0,6.85
+s0345,iliac_artery_right,0.0,0.0,0.0,0,0.0,7.94
+s0345,iliopsoas_left,0.8067,0.8067,0.0,0,61.08,68.28
+s0345,iliopsoas_right,0.8724,0.8724,0.0,0,97.6,98.36
+s0345,kidney_left,0.8697,0.8697,0.0,0,15.26,14.67
+s0345,liver,0.933,0.933,0.0,0,360.63,352.84
+s0345,spleen,0.8923,0.8923,0.0,0,53.61,60.15

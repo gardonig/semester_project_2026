@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0297,hip_left,0.7855,0.7855,0.0,0,10.62,11.42
+s0297,hip_right,0.7666,0.7666,0.0,0,11.34,12.74
+s0297,iliopsoas_left,0.8484,0.8484,0.0,0,54.54,59.88
+s0297,iliopsoas_right,0.8189,0.8189,0.0,0,36.83,33.82
+s0297,sacrum,0.8332,0.8332,0.0,0,93.99,99.53

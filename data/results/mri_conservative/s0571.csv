@@ -1,0 +1,4 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0571,humerus_left,0.0,0.0,0.0,0,0.0,0.13
+s0571,liver,0.9194,0.9194,0.0,0,283.08,280.93
+s0571,spleen,0.9339,0.9339,0.0,0,33.55,32.99

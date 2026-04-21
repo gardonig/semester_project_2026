@@ -1,0 +1,4 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0455,autochthon_left,0.8249,0.8249,0.0,0,4.58,4.16
+s0455,brain,0.448,0.448,0.0,0,3.63,5.7
+s0455,esophagus,0.75,0.75,0.0,0,0.84,0.64

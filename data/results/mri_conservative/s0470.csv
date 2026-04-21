@@ -1,0 +1,9 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0470,aorta,0.7997,0.7997,0.0,0,39.91,46.01
+s0470,clavicula_right,0.0,0.0,0.0,0,0.0,0.28
+s0470,colon,0.8173,0.8173,0.0,0,1.42,1.66
+s0470,esophagus,0.6628,0.6628,0.0,0,0.89,0.64
+s0470,humerus_left,0.7657,0.7657,0.0,0,2.2,1.98
+s0470,humerus_right,0.8989,0.8989,0.0,0,29.03,31.87
+s0470,inferior_vena_cava,0.7952,0.7952,0.0,0,7.43,6.74
+s0470,scapula_right,0.8198,0.8198,0.0,0,3.72,3.87

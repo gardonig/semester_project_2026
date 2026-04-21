@@ -1,0 +1,3 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0332,liver,0.9139,0.9139,0.0,0,1014.3,987.75
+s0332,stomach,0.876,0.876,0.0,0,142.65,136.8

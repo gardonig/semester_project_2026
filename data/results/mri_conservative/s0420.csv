@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0420,aorta,0.7949,0.7949,0.0,0,50.21,49.72
+s0420,humerus_left,0.7572,0.7572,0.0,0,1.85,1.57
+s0420,humerus_right,0.8289,0.8289,0.0,0,5.07,5.62
+s0420,liver,0.938,0.938,0.0,0,355.27,334.9
+s0420,spleen,0.9098,0.9098,0.0,0,53.52,54.61

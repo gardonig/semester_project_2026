@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0283,autochthon_left,0.0,0.0,0.0,0,0.0,0.72
+s0283,autochthon_right,0.0,0.0,0.0,0,0.0,0.46
+s0283,brain,0.9739,0.9739,0.0,0,1214.64,1222.1
+s0283,clavicula_right,0.0,0.0,0.0,0,0.0,1.46
+s0283,esophagus,0.0,0.0,0.0,0,0.0,0.01

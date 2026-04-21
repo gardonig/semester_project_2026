@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0591,autochthon_left,0.8681,0.8681,0.0,0,13.99,14.12
+s0591,autochthon_right,0.7037,0.7037,0.0,0,17.23,15.04
+s0591,clavicula_left,0.0,0.0,0.0,0,0.0,0.85
+s0591,clavicula_right,0.0,0.0,0.0,0,0.0,0.29
+s0591,esophagus,0.7571,0.7571,0.0,0,1.96,2.15

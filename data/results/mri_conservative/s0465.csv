@@ -1,0 +1,8 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0465,aorta,0.8586,0.8586,0.0,0,5.18,4.9
+s0465,clavicula_left,0.8312,0.8312,0.0,0,7.21,7.08
+s0465,clavicula_right,0.8334,0.8334,0.0,0,6.09,6.68
+s0465,humerus_left,0.8856,0.8856,0.0,0,47.41,45.43
+s0465,humerus_right,0.9195,0.9195,0.0,0,66.66,67.44
+s0465,scapula_left,0.8048,0.8048,0.0,0,12.27,11.22
+s0465,scapula_right,0.7635,0.7635,0.0,0,7.24,8.16

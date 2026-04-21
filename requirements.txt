@@ -26,6 +26,8 @@ matplotlib-inline==0.2.1
 narwhals==2.18.0
 nbformat==4.2.0
 nest-asyncio==1.6.0
+anthropic>=0.40.0
+nibabel>=5.0.0
 numpy==2.4.3
 packaging==26.0
 pandas==3.0.1

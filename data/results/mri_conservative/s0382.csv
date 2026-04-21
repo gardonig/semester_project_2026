@@ -1,0 +1,17 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0382,autochthon_left,0.8742,0.8742,0.0,0,4.53,4.23
+s0382,autochthon_right,0.8412,0.8412,0.0,0,7.41,6.91
+s0382,colon,0.8423,0.8423,0.0,0,31.38,31.23
+s0382,duodenum,0.0,0.0,0.0,0,0.0,1.11
+s0382,gluteus_maximus_left,0.8351,0.8351,0.0,0,25.87,28.54
+s0382,gluteus_maximus_right,0.7525,0.7525,0.0,0,6.66,6.91
+s0382,gluteus_medius_left,0.8106,0.8106,0.0,0,16.04,19.29
+s0382,gluteus_minimus_left,0.6674,0.6674,0.0,0,2.0,1.89
+s0382,hip_left,0.8955,0.8955,0.0,0,75.51,79.61
+s0382,hip_right,0.8834,0.8834,0.0,0,67.87,75.44
+s0382,iliac_artery_right,0.0,0.0,0.0,0,0.0,2.16
+s0382,iliopsoas_left,0.9056,0.9056,0.0,0,59.88,61.63
+s0382,iliopsoas_right,0.8885,0.8885,0.0,0,70.57,71.09
+s0382,inferior_vena_cava,0.7143,0.7143,0.0,0,1.63,1.23
+s0382,sacrum,0.8545,0.8545,0.0,0,116.46,124.16
+s0382,small_bowel,0.8294,0.8294,0.0,0,70.69,67.33

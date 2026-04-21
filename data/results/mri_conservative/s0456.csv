@@ -1,0 +1,9 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0456,aorta,0.8259,0.8259,0.0,0,7.05,8.22
+s0456,esophagus,0.8513,0.8513,0.0,0,5.14,4.93
+s0456,humerus_left,0.8023,0.8023,0.0,0,3.82,3.64
+s0456,humerus_right,0.713,0.713,0.0,0,1.49,1.08
+s0456,inferior_vena_cava,0.7382,0.7382,0.0,0,8.85,7.21
+s0456,liver,0.9205,0.9205,0.0,0,660.97,686.17
+s0456,spleen,0.881,0.881,0.0,0,72.06,75.61
+s0456,stomach,0.9319,0.9319,0.0,0,81.25,83.06

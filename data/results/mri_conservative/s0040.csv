@@ -1,0 +1,11 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0040,autochthon_left,0.9456,0.9456,0.0,0,213.21,222.61
+s0040,autochthon_right,0.9441,0.9441,0.0,0,206.16,209.23
+s0040,colon,0.8456,0.8456,0.0,0,315.44,318.8
+s0040,duodenum,0.8205,0.8205,0.0,0,16.85,16.02
+s0040,iliopsoas_left,0.8999,0.8999,0.0,0,76.8,77.68
+s0040,iliopsoas_right,0.9023,0.9023,0.0,0,78.17,79.29
+s0040,inferior_vena_cava,0.0,0.0,0.0,0,0.0,0.21
+s0040,kidney_right,0.8323,0.8323,0.0,0,91.89,82.46
+s0040,small_bowel,0.8246,0.8246,0.0,0,562.11,563.79
+s0040,spleen,0.9025,0.9025,0.0,0,80.01,88.66

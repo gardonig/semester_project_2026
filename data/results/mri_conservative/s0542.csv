@@ -1,0 +1,4 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0542,liver,0.91,0.91,0.0,0,325.41,314.04
+s0542,pancreas,0.8481,0.8481,0.0,0,3.97,3.4
+s0542,spleen,0.9061,0.9061,0.0,0,45.52,48.79

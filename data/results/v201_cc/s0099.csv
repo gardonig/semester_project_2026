@@ -1,0 +1,12 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0099,autochthon_left,0.7931,0.7931,0.0,0,3.32,3.96
+s0099,autochthon_right,0.8212,0.8212,0.0,0,3.32,3.23
+s0099,brain,0.4444,0.4444,0.0,0,1.13,0.9
+s0099,gluteus_medius_left,0.0,0.0,0.0,0,0.0,0.3
+s0099,vertebrae_C1,0.8276,0.8276,0.0,0,13.23,14.58
+s0099,vertebrae_C2,0.8446,0.8446,0.0,0,15.73,16.99
+s0099,vertebrae_C3,0.8292,0.8292,0.0,0,13.03,13.53
+s0099,vertebrae_C4,0.8354,0.8354,0.0,0,13.15,14.27
+s0099,vertebrae_C5,0.8169,0.8169,0.0,0,12.5,13.92
+s0099,vertebrae_C6,0.7557,0.7557,0.0,0,9.86,11.1
+s0099,vertebrae_C7,0.6133,0.6133,0.0,0,2.43,2.04

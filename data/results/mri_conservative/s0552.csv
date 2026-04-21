@@ -1,0 +1,13 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0552,adrenal_gland_right,0.0,0.0,0.0,0,0.0,1.49
+s0552,aorta,0.8298,0.8298,0.0,0,35.45,32.21
+s0552,autochthon_left,0.8429,0.8429,0.0,0,108.59,116.03
+s0552,autochthon_right,0.8453,0.8453,0.0,0,123.7,128.43
+s0552,iliac_artery_left,0.6984,0.6984,0.0,0,2.27,1.7
+s0552,iliac_artery_right,0.5957,0.5957,0.0,0,0.89,0.53
+s0552,iliac_vena_left,0.553,0.553,0.0,0,0.56,0.62
+s0552,iliac_vena_right,0.6909,0.6909,0.0,0,4.17,3.58
+s0552,iliopsoas_left,0.9194,0.9194,0.0,0,85.05,87.98
+s0552,iliopsoas_right,0.92,0.92,0.0,0,89.22,86.44
+s0552,inferior_vena_cava,0.8302,0.8302,0.0,0,54.1,57.52
+s0552,sacrum,0.9064,0.9064,0.0,0,115.96,111.94

@@ -1,0 +1,2 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0385,autochthon_left,0.1258,0.1258,0.0,0,38.73,2.7

@@ -1,0 +1,5 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0587,aorta,0.765,0.765,0.0,0,8.76,7.99
+s0587,autochthon_left,0.7295,0.7295,0.0,0,14.89,15.09
+s0587,autochthon_right,0.8105,0.8105,0.0,0,13.42,13.01
+s0587,esophagus,0.6754,0.6754,0.0,0,2.26,2.05

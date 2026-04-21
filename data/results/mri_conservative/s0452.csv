@@ -1,0 +1,4 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0452,clavicula_right,0.8624,0.8624,0.0,0,13.5,13.76
+s0452,humerus_right,0.9391,0.9391,0.0,0,56.7,56.12
+s0452,scapula_right,0.7122,0.7122,0.0,0,41.24,35.93

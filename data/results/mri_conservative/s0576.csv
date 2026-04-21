@@ -1,0 +1,6 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0576,aorta,0.8508,0.8508,0.0,0,15.56,15.51
+s0576,autochthon_left,0.8276,0.8276,0.0,0,4.99,5.85
+s0576,autochthon_right,0.8167,0.8167,0.0,0,11.52,10.15
+s0576,clavicula_left,0.8733,0.8733,0.0,0,3.65,3.77
+s0576,clavicula_right,0.8629,0.8629,0.0,0,1.97,2.01

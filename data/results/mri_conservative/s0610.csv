@@ -1,0 +1,5 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0610,brain,0.9783,0.9783,0.0,0,1463.93,1461.48
+s0610,clavicula_left,0.0,0.0,0.0,0,0.0,0.6
+s0610,clavicula_right,0.0,0.0,0.0,0,0.0,0.09
+s0610,scapula_right,0.0,0.0,0.0,0,0.0,0.04

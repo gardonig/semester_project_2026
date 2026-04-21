@@ -94,19 +94,29 @@ The conservative rule ensures the method never destroys the main body of a struc
 ```bash
 # Clean a single subject, save output
 python scripts/poset_constraint_postprocessing.py \
-    --pred_dir data/imaging_datasets/totalseg_output_amos_v157 \
+    --pred_dir data/predictions/amos_v157 \
     --poset    data/posets/llm_sessions/llm_claude_v157.json \
     --subject  amos_0102 \
-    --out_dir  data/imaging_datasets/totalseg_output_amos_v157_cleaned
+    --out_dir  data/predictions/amos_v157_cleaned
 
 # Clean all subjects, evaluate Dice against GT
 python scripts/poset_constraint_postprocessing.py \
-    --pred_dir  data/imaging_datasets/totalseg_v201_pred \
-    --gt_dir    data/imaging_datasets/totalseg_v201 \
+    --pred_dir  data/predictions/v201 \
+    --gt_dir    data/datasets/totalseg_v201 \
     --gt_format totalseg_per_subject \
     --poset     data/posets/llm_sessions/llm_claude_v157.json \
     --all_subjects \
-    --csv       results/v201_v157.csv
+    --csv       data/results/v201_v157.csv
+
+# Aggressive mode (remove any non-LCC blob partially below B's top)
+python scripts/poset_constraint_postprocessing.py \
+    --pred_dir  data/predictions/v201 \
+    --gt_dir    data/datasets/totalseg_v201 \
+    --gt_format totalseg_per_subject \
+    --poset     data/posets/llm_sessions/llm_claude_v157.json \
+    --all_subjects \
+    --aggressive \
+    --csv       data/results/v201_v157_aggressive.csv
 ```
 
 Note: `--gt_dir` is used **only for Dice evaluation** after cleaning — it plays no role in the cleaning decisions themselves.
@@ -214,15 +224,24 @@ These files are **large and not tracked in git**.
 ## Project structure (short)
 
 ```text
-anatomy_poset/
 ├── assets/                      # UI images, tensors, diagrams
 ├── data/
-│   ├── Input_CoM_structures/    # Input CoM JSONs
-│   └── Output_constructed_posets/  # Saved posets (autosave)
+│   ├── datasets/                # Source datasets (gitignored — large)
+│   ├── predictions/             # TotalSegmentator outputs (gitignored — large)
+│   ├── results/                 # Dice evaluation CSVs (tracked)
+│   ├── posets/                  # Saved poset JSON files
+│   │   ├── llm_sessions/        # LLM-generated posets
+│   │   ├── clinician_sessions/  # Human-annotated sessions
+│   │   └── merged_sessions/     # Multi-rater merged posets
+│   ├── structures/              # Input CoM structure JSON files
+│   └── README.md                # Dataset and results overview
 ├── src/anatomy_poset/
 │   ├── core/                    # axis_models, io, matrix_builder, matrix_aggregation
 │   └── gui/                     # PySide6 GUI (main window, dialogs, poset_viewer)
-├── scripts/                     # Helper scripts (e.g. view_full_body_male.py)
+├── scripts/
+│   ├── poset_constraint_postprocessing.py  # CC-based segmentation cleaning
+│   ├── truncated_fov_experiment.py         # Simulated truncated FOV evaluation
+│   └── llm_poset_builder.py               # LLM-assisted poset construction
 ├── run.py                       # Quick-start GUI launcher
 └── README.md
 ```

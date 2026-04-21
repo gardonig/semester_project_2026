@@ -1,0 +1,2 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0611,brain,0.9792,0.9792,0.0,0,1303.63,1296.81

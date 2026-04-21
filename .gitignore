@@ -11,35 +11,35 @@ env/
 .vibeseg_venv/
 .totalseg_venv
 
-# Cloned external tool repositories (re-clone from setup scripts)
+# Cloned external tool repositories
 tools/
 
-# Segmentation outputs from external tools
-data/imaging_datasets
+# Large data directories (not tracked)
+data/datasets/*
+data/predictions/*
+
+# Poset session files (user-generated, not tracked)
 data/posets/tests/*
 data/posets/merged_sessions/*
-data/totalseg_output
+data/Output_constructed_posets/*.json
 
 # OS specific files
 .DS_Store
 Thumbs.db
 
-# Project specific data
-# We ignore the output files so user data isn't pushed to the repository
-data/Output_constructed_posets/*.json
-assets/visible_human_male/
-
-# Large generated tensors (keep directory, ignore contents)
+# Large generated tensors
 assets/visible_human_tensors/*
 !assets/visible_human_tensors/.gitkeep
+assets/visible_human_male/
 
-# Keep the directory structure but ignore the contents
+# Keep empty directory markers
 !data/Output_constructed_posets/.gitkeep
 
-# instruction documents
+# Instruction documents
 scripts/generate_instructions_docx.py
 Anatomical_Poset_Builder_Instructions.docx
 
+# Per-tool requirement files
 requirements_totalseg.txt
 requirements_medsam.txt
 requirements_vibeseg.txt

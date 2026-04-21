@@ -1,0 +1,5 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0528,colon,0.8977,0.8977,0.0,0,66.6,60.64
+s0528,humerus_left,0.7857,0.7857,0.0,0,7.45,7.9
+s0528,humerus_right,0.8263,0.8263,0.0,0,5.08,5.0
+s0528,liver,0.9406,0.9406,0.0,0,888.94,879.51

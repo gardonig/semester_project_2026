@@ -1,0 +1,13 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0448,adrenal_gland_right,0.0,0.0,0.0,0,0.0,0.2
+s0448,aorta,0.8817,0.8817,0.0,0,60.21,63.14
+s0448,autochthon_left,0.8735,0.8735,0.0,0,36.56,43.03
+s0448,autochthon_right,0.8704,0.8704,0.0,0,41.4,44.18
+s0448,clavicula_left,0.8463,0.8463,0.0,0,7.87,6.98
+s0448,clavicula_right,0.8461,0.8461,0.0,0,6.83,6.79
+s0448,esophagus,0.8023,0.8023,0.0,0,10.62,10.69
+s0448,iliopsoas_left,0.0,0.0,0.0,0,0.0,2.92
+s0448,inferior_vena_cava,0.7547,0.7547,0.0,0,11.91,12.37
+s0448,pancreas,0.0,0.0,0.0,0,0.0,0.5
+s0448,portal_vein_and_splenic_vein,0.8009,0.8009,0.0,0,5.39,5.27
+s0448,sacrum,0.0,0.0,0.0,0,0.0,0.27

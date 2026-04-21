@@ -1,0 +1,5 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0231,gluteus_maximus_left,0.0,0.0,0.0,0,12.93,195.04
+s0231,gluteus_maximus_right,0.0,0.0,0.0,0,0.0,337.48
+s0231,hip_left,0.0574,0.0574,0.0,0,0.94,30.34
+s0231,hip_right,0.0,0.0,0.0,0,0.0,32.79

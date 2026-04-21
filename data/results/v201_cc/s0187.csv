@@ -1,0 +1,4 @@
+subject,structure,dice_before,dice_after,delta,voxels_removed,vol_pred_ml,vol_gt_ml
+s0187,brain,0.9776,0.9776,0.0,0,1354.67,1394.43
+s0187,vertebrae_C1,0.8444,0.8444,0.0,0,13.45,13.28
+s0187,vertebrae_C2,0.8869,0.8869,0.0,0,7.45,7.37
