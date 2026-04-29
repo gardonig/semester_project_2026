@@ -1,28 +1,56 @@
-# Local scripts
+# Scripts
 
-Helper and one-off scripts live here. This folder is **tracked in git** (not gitignored), so useful tooling and reproducible utilities in `scripts/` should be committed with the project.
+Organised by task — pick the folder for the work you want to do.
 
-# Examples
+---
 
-## Algorithm 1 matrix walkthrough (`algorithm1_matrix_walkthrough.py`)
+## `cleaning/` — Segmentation constraint post-processing
 
-Explains the **gap-based** question order for **n = 4** structures and saves a figure with the tri-valued matrix **M** after each simulated answer.
+| Script | Purpose |
+| --- | --- |
+| `poset_constraint_postprocessing.py` | Main cleaning pipeline: applies poset constraints via CC analysis, outputs cleaned masks and Dice CSV |
+| `summarize_results.py` | Aggregate per-subject CSVs into per-structure summary tables; supports side-by-side comparison |
+| `visualize_cleaning.py` | Axial-slice visualisation of before/after cleaning (green=kept, red=removed, blue=GT) |
+| `truncated_fov_experiment.py` | Simulate truncated FOV scans and evaluate cleaning benefit |
 
-Requires **matplotlib** and **numpy** (same as the GUI).
+---
 
-```bash
-cd /path/to/Anatomy_Posets
-PYTHONPATH=src python examples/algorithm1_matrix_walkthrough.py
-```
+## `poset_construction/` — Building anatomical posets
 
-Output: `examples/algorithm1_walkthrough.png`
+| Script | Purpose |
+| --- | --- |
+| `llm_poset_builder.py` | Query an LLM to fill a poset matrix interactively |
+| `generate_llm_poset_knowledge.py` | Generate LLM poset for the default structure set |
+| `generate_llm_poset_v157.py` | Generate LLM poset specifically for TotalSegmentator v157 structures |
 
-**Interpretation:**
+---
 
-- Rows/columns are structures sorted by **vertical CoM descending** (index 0 = most superior).
-- **M[i][j] = +1** means “structure i is strictly above j”.
-- **Lower triangle** (i > j) is fixed to **−1** (geometrically impossible for “strictly above” on this axis).
-- **Algorithm 1** visits pairs with **gap** g = 1, 2, …, n−1: pairs **(i, i+g)** for **i = 0 … n−1−g**.
-- After each answer, **propagation** (`_propagate`) may fill more cells (transitive +1, inverse −1, etc.), so **next_pair** may skip pairs that are already implied.
+## `segmentation/` — Third-party segmentor tools
 
-The script uses a **mixed** answer pattern (e.g. +1 then −1 on the chain) so more than three steps appear; answering **+1** on every adjacent pair along the chain only needs **three** questions before the rest is implied.
+| Script | Purpose |
+| --- | --- |
+| `compare_segmenters.py` | Dice comparison across TotalSegmentator, MedSAM, VibeSeg |
+| `run_medsam.py` | Run MedSAM inference on a dataset |
+| `setup_medsam.sh` | Install MedSAM and dependencies into a venv |
+| `setup_vibeseg.sh` | Install VibeSeg and dependencies into a venv |
+
+---
+
+## `data_prep/` — Data preparation
+
+| File | Purpose |
+| --- | --- |
+| `compute_com_from_gt.py` | Compute average CoM for every TS structure from GT masks; outputs GUI-ready JSON |
+| `compute_empirical_poset.py` | Compute empirical probability poset from GT bounding boxes across all subjects; outputs probability matrix JSON usable by the cleaning script |
+| `CoM_extractor.ipynb` | Original CoM extraction notebook (56 structures, older dataset) |
+
+---
+
+## `dev/` — Research and visualisation helpers
+
+| Script | Purpose |
+| --- | --- |
+| `algorithm1_matrix_walkthrough.py` | Step-through demo of the gap-based query algorithm for n=4 structures |
+| `view_segmentation.py` | Quick viewer for NIfTI segmentation masks |
+| `view_full_body_male.py` | Render the full-body visible-human volume tensor |
+| `stand_alone_poset_anatomy.py` | Self-contained prototype of the poset GUI (no package install needed) |

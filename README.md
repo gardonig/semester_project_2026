@@ -1,187 +1,102 @@
 # Enforcing Anatomical Spatial Consistency in Multi-Organ Segmentation via Posets
 
-## Overview
-
-This project enforces **anatomical spatial consistency** in multi-organ segmentation using partially ordered sets (posets).  
-Clinicians specify relative positions of structures (vertical, mediolateral, anteroposterior), and the resulting posets can be used to check and correct segmentation outputs.
+Clinicians specify relative spatial positions of anatomical structures (superior/inferior, left/right, anterior/posterior). These constraints are encoded as a **partially ordered set (poset)** and used to detect and remove anatomically impossible predictions from multi-organ segmentation outputs.
 
 ---
 
-## Relation matrices (one per axis)
+## Table of Contents
 
-For each anatomical axis (vertical, mediolateral, anteroposterior), the app maintains a square **tri-valued relation matrix** \(M\) with one row/column per structure (after sorting—see below).
-
-| Entry | Meaning |
-|-------|---------|
-| **+1** | Structure \(i\) is **strictly above** structure \(j\) along that axis (directed “yes”). |
-| **0** | The pair was **asked**; the expert is **unsure** (still directional). |
-| **−1** | \(i\) is **not** strictly above \(j\) (includes “no”, overlap, or opposite direction implied by the CoM prior). |
-| **null** | **Not asked yet** (or never queried for that directed cell). |
-
-**Diagonal** entries are fixed to **−1** (self-relations are not “strictly above”).
-After **canonical sorting** by CoM on the active axis (descending), **lower triangle** entries with **column index \(j < i\)** are **sealed** to **−1**: in that order, structure \(i\) cannot lie strictly above \(j\) on the \(i\!>\!j\) side of the diagonal. The **strict upper triangle** (\(j > i\) in row-major layout) is where expert queries and inference fill **+1**, **0**, or **−1**; **null** is “still open”.
-
----
-
-## How the matrix is built (algorithm)
-
-1. **Sort structures** by the chosen axis CoM (descending), matching `matrix_builder.MatrixBuilder`.
-2. **Initialize** \(M\): diagonal **−1**, lower triangle **−1**, upper triangle **null** (plus bilateral / equal-CoM rules as implemented).
-3. **Gap-based queries** (`next_pair`): pairs \((i, j)\) with \(j = i + \text{gap}\) are considered in order of increasing gap (1, 2, …). Pairs already decided (not **null**), implied by **transitive +1** reachability, or skipped by vertical bilateral symmetry rules are not asked again.
-4. **Optional region subsets**: you can restrict **which pairs are asked** to those whose **both** endpoints lie in selected body-region presets; the **saved JSON still lists every structure** and the same **n×n** matrix size so merges stay compatible.
-5. **After each answer**, **propagation** updates the matrix: transitive **+1** chains, inverse **−1** when a side is **+1**, mirroring for left/right cores on the vertical axis, and **closure of unknowns** where reachability on **+1** edges forces a direction.  
-6. **Saved file** stores three matrices (`matrix_vertical`, `matrix_mediolateral`, `matrix_anteroposterior`) plus the full **structures** list.
-
-**Bilateral structures** (e.g. “Left Lung” / “Right Lung”) on the vertical axis are merged into a single question: *”Are Left Lung and Right Lung strictly above …?”* so both sides are answered simultaneously.
-
-**Hasse diagram (poset viewer)** shows only **cover edges** derived from **+1** entries (transitive reduction of the strict “above” relation). It does **not** draw “unsure” **0** pairs.
-
----
-
-## Merging multiple raters / sessions
-
-The poset viewer’s **Merge JSON files…** combines several saved posets that describe the **same** set of anatomical structures.
-
-1. **Align** non-reference files to the **first** file’s structure order: index \(i\) must refer to the same organ across files. If the JSON order differs, matrices are **permuted** by matching **name + CoM** (within tolerance), or merge fails if sets are incompatible.
-2. **Canonical sort per axis** (vertical / mediolateral / anteroposterior) reorders each rater’s matrix for that axis (CoM descending) and **reseals** the lower triangle to **−1**.
-3. **Per-cell aggregation** (`matrix_aggregation.aggregate_matrices_with_counts`): for each directed pair \((i,j)\), each rater contributes **−2** (not asked), or **−1 / 0 / +1** if answered. **−2** is excluded from the mean and vote counts.
-4. **Probability matrix** (`matrix_aggregation.aggregate_to_p_yes_matrix`): for each directed pair, compute **\(P(\text{yes})=(\mu+1)/2\)** where **\(\mu\)** is the mean of answered codes only (`−2` excluded). If nobody answered that cell, the saved value is JSON **`null`**.
-5. **Hasse extraction rule**: use only edges with **`p == 1`** (strict certainty). Values in \(0 < p < 1\) are partial evidence shown in the heatmap/list summaries but not strict order edges.
-6. **Save merged** writes one JSON with **structures** in vertical-CoM order and **reindexed** mediolateral / anteroposterior matrices in `matrix_vertical`, `matrix_mediolateral`, `matrix_anteroposterior` (**P(yes)** cells live there as floats / `null`). The default filename is composed of the stems of the merged files (e.g. `session_alice+session_bob.json`). Optional **`matrix_*_n_answered`** (Σw per cell) and **`matrix_*_n_notasked`** are stored in the JSON to support **weighted** re-merge of already-merged files, but are not shown in the matrix viewer. **`save_poset_to_json`** / **`load_poset_from_json`** also accept arbitrary **`extra`** top-level fields (merge metadata).
-
-**Chained probability merges:** Per file and cell, `μ = 2P - 1` with weight **1** unless the loaded file has **`matrix_*_n_answered ≥ 1`** at that cell (then that value is the weight). `μ` is **Σw-weighted** across files; then `P = (μ+1)/2`. Without sidecars this matches an unweighted mean of `P` when each file contributes once. **Pooling all original experts** still requires merging **raw** tri-valued sessions (or equivalent detail), not only summaries.
-
----
-
-## Segmentation cleaning (`poset_constraint_postprocessing.py`)
-
-The script `scripts/poset_constraint_postprocessing.py` applies the poset constraints as a **post-processing step** on top of an existing multi-organ segmentation (e.g. TotalSegmentator output). It detects and removes anatomically impossible voxels — predictions that violate the spatial ordering relationships encoded in the poset.
-
-### What it corrects
-
-TotalSegmentator and similar models occasionally predict voxels of a structure in locations that are anatomically impossible given the known position of other structures. Common failure cases include:
-
-- **Truncated scans**: the top or bottom of the scan is cut off, causing stray fragments of ribs or vertebrae to appear at the wrong end of the image.
-- **Adjacent structure confusion**: lung lobe voxels bleeding into the territory of a lower lobe, or a rib fragment predicted at the level of a neighboring rib.
-- **Out-of-distribution anatomy**: pediatric patients, pathological displacements, or unusual body habitus where the model's spatial priors break down.
-
-The poset encodes constraints of the form **"structure A is strictly superior to structure B"**. Any disconnected fragment of A that appears entirely below B is anatomically impossible and can be safely removed.
-
-Only the **vertical (superior–inferior) axis** is used for cleaning. Mediolateral and anteroposterior constraints are not applied because adjacent structures frequently share the same lateral/AP extent in real patients, making hard cuts unsafe.
-
-### Cleaning method
-
-The script uses **connected component analysis** on the predictions themselves — no ground truth required or used:
-
-```
-For each constraint "A is above B":
-  1. Extract the largest connected component (LCC) of B
-     — this is the trusted main body of B.
-  2. Find all connected components of A.
-  3. For each non-LCC component of A:
-       if the entire component lies below B's LCC inferior boundary
-       → remove it (disconnected false positive in the wrong zone).
-  4. Conservative rule: A's own LCC is never removed, even if it
-     violates the constraint.
-```
-
-This works because TotalSegmentator errors are almost always **small disconnected blobs** in anatomically wrong locations, not wholesale misplacements of the main structure body. The largest connected component of each structure is almost always correct; only the outlier fragments in clearly wrong positions are removed.
-
-The conservative rule ensures the method never destroys the main body of a structure based on ambiguous evidence.
-
-### Usage examples
-
-```bash
-# Clean a single subject, save output
-python scripts/poset_constraint_postprocessing.py \
-    --pred_dir data/predictions/amos_v157 \
-    --poset    data/posets/llm_sessions/llm_claude_v157.json \
-    --subject  amos_0102 \
-    --out_dir  data/predictions/amos_v157_cleaned
-
-# Clean all subjects, evaluate Dice against GT
-python scripts/poset_constraint_postprocessing.py \
-    --pred_dir  data/predictions/v201 \
-    --gt_dir    data/datasets/totalseg_v201 \
-    --gt_format totalseg_per_subject \
-    --poset     data/posets/llm_sessions/llm_claude_v157.json \
-    --all_subjects \
-    --csv       data/results/v201_v157.csv
-
-# Aggressive mode (remove any non-LCC blob partially below B's top)
-python scripts/poset_constraint_postprocessing.py \
-    --pred_dir  data/predictions/v201 \
-    --gt_dir    data/datasets/totalseg_v201 \
-    --gt_format totalseg_per_subject \
-    --poset     data/posets/llm_sessions/llm_claude_v157.json \
-    --all_subjects \
-    --aggressive \
-    --csv       data/results/v201_v157_aggressive.csv
-```
-
-Note: `--gt_dir` is used **only for Dice evaluation** after cleaning — it plays no role in the cleaning decisions themselves.
+1. [Setup](#setup)
+2. [Project Structure](#project-structure)
+3. [Poset Construction (GUI)](#poset-construction-gui)
+4. [Segmentation Cleaning](#segmentation-cleaning)
+5. [Evaluating Results](#evaluating-results)
+6. [Data](#data)
+7. [Technical Reference](#technical-reference)
 
 ---
 
 ## Setup
 
-Requirements:
-
-- Python 3.9+
-
-Install (recommended in a virtual environment):
+**Requirements:** Python 3.9+
 
 ```bash
 pip install -e .
 ```
 
-Alternatively:
+---
 
-```bash
-pip install -r requirements.txt
+## Project Structure
+
+```text
+├── assets/                      # UI images, tensors, diagrams
+├── data/
+│   ├── datasets/                # Source datasets — gitignored (large)
+│   ├── predictions/             # TotalSegmentator outputs — gitignored (large)
+│   ├── results/                 # Dice evaluation CSVs — tracked
+│   ├── posets/                  # Saved poset JSON files
+│   │   ├── llm_sessions/        # LLM-generated posets
+│   │   ├── clinician_sessions/  # Human-annotated sessions
+│   │   └── merged_sessions/     # Multi-rater merged posets
+│   ├── structures/              # Input CoM structure JSON files
+│   └── README.md                # Dataset and results overview
+├── src/anatomy_poset/
+│   ├── core/                    # axis_models, io, matrix_builder, matrix_aggregation
+│   └── gui/                     # PySide6 GUI (main window, dialogs, poset_viewer)
+├── scripts/
+│   ├── cleaning/                    # Segmentation constraint cleaning
+│   │   ├── poset_constraint_postprocessing.py
+│   │   ├── summarize_results.py
+│   │   ├── visualize_cleaning.py
+│   │   └── truncated_fov_experiment.py
+│   ├── poset_construction/          # Poset building (LLM-assisted)
+│   │   ├── llm_poset_builder.py
+│   │   ├── generate_llm_poset_knowledge.py
+│   │   └── generate_llm_poset_v157.py
+│   ├── segmentation/                # Third-party segmentor tools
+│   │   ├── compare_segmenters.py
+│   │   ├── run_medsam.py
+│   │   ├── setup_medsam.sh
+│   │   └── setup_vibeseg.sh
+│   ├── data_prep/                   # Data extraction utilities
+│   │   └── CoM_extractor.ipynb
+│   └── dev/                         # Research / visualisation helpers
+│       ├── view_segmentation.py
+│       ├── view_full_body_male.py
+│       ├── algorithm1_matrix_walkthrough.py
+│       └── stand_alone_poset_anatomy.py
+├── run.py                       # Quick-start GUI launcher
+└── README.md
 ```
 
 ---
 
-## Running the GUI
+## Poset Construction (GUI)
 
-### Starting a session
-
-When you click **Start**, a dialog asks whether to **Continue an existing file** (picks up where that session left off — no answers are lost) or **Create a new file** (blank session). Cancelling returns to the main window without starting. The answer buttons in the query dialog are **Yes \[F\]**, **No \[S\]**, and **Unsure \[D\]** (keyboard shortcuts in brackets).
-
-### Via installed CLI
-
-After installation you can launch the GUI with:
+### Launching
 
 ```bash
+# After installation
 anatomy-poset
-```
 
-To start with a specific structures file (new CoMs):
-
-```bash
-anatomy-poset data/structures/test_structures_2.json
-```
-
-### Via `run.py` (no installation)
-
-From the project root:
-
-```bash
+# Without installation
 python run.py
-```
 
-With an explicit input file:
-
-```bash
+# With a specific structures file
 python run.py data/structures/test_structures_2.json
 ```
 
----
+### Workflow
 
-## Input JSON format
+Click **Start** to begin. Choose to **Continue an existing file** or **Create a new file**. The GUI presents structure pairs one at a time and asks whether structure A is strictly above structure B along the active axis.
 
-Example (`data/structures/test_structures.json`):
+**Keyboard shortcuts:** Yes `[F]` · No `[S]` · Unsure `[D]`
+
+Answers are autosaved after each query. The Hasse diagram updates in real time showing only confirmed `+1` edges (transitive reduction).
+
+### Input JSON format
+
+Structures are defined by their centre-of-mass coordinates, scaled to `[0, 100]`:
 
 ```json
 {
@@ -196,52 +111,187 @@ Example (`data/structures/test_structures.json`):
 }
 ```
 
-- **`com_vertical`**: CoM along the superior–inferior (vertical) axis, scaled to \([0, 100]\):  
-  `0` = toes / feet (most inferior), `100` = vertex / head (most superior).
-- **`com_lateral`**: CoM along the right–left (lateral) axis (patient’s perspective), scaled to \([0, 100]\):  
-  `0` = far right (e.g. right thumb), `100` = far left (e.g. left thumb).
-- **`com_anteroposterior`**: CoM along the back–front (anteroposterior) axis, scaled to \([0, 100]\):  
-  `0` = back / dorsal side, `100` = front / ventral side.
+| Field | Axis | `0` | `100` |
+| --- | --- | --- | --- |
+| `com_vertical` | Superior–inferior | Feet | Head |
+| `com_lateral` | Right–left (patient) | Far right | Far left |
+| `com_anteroposterior` | Back–front | Dorsal | Ventral |
 
-Output posets are saved under `data/posets/` (organized by `tests/`, `clinician_sessions/`, and `merged_sessions/` subdirectories). Autosave triggers during each query.
+### Merging sessions
 
----
-
-## Full-body volume tensors
-
-The GUI’s **Full-Body Volume** panel and the helper script `scripts/view_full_body_male.py` expect precomputed NumPy tensors:
-
-- `assets/visible_human_tensors/full_body_tensor_rgb.npy` — RGB tensor `(Z, Y, X, 3)`
-- `assets/visible_human_tensors/full_body_tensor.npy` — grayscale tensor `(Z, Y, X)`
-
-These files are **large and not tracked in git**.
-
-- To obtain them, please contact **Gian** (e-mail); he will provide a download link (e.g. via Dropbox).  
-- After downloading, place the `.npy` files into `assets/visible_human_tensors/` so the GUI and scripts can find them automatically.
+Use **Merge JSON files…** in the poset viewer to combine multiple annotator sessions. Matrices are aligned by structure name + CoM, aggregated per cell, and saved as a probability poset (`P(yes)` per directed pair). Only pairs with `p == 1.0` appear as edges in the Hasse diagram.
 
 ---
 
-## Project structure (short)
+## Segmentation Cleaning
+
+The script `scripts/cleaning/poset_constraint_postprocessing.py` removes anatomically impossible voxels from TotalSegmentator predictions using poset constraints — **no ground truth required**.
+
+### What it corrects
+
+- **Truncated scans** — stray rib or vertebra fragments near a cropped scan boundary
+- **Adjacent structure confusion** — a rib fragment predicted at the level of a neighbouring rib
+- **Out-of-distribution anatomy** — unusual body habitus where the model's spatial priors break down
+
+### Algorithm
+
+For each constraint *"A is strictly above B"*:
+
+1. Find B's **largest connected component** (LCC) — the trusted main body.
+2. Find all connected components of A.
+3. For each non-LCC component of A: if it lies entirely below B's superior boundary → **remove it**.
+4. A's own LCC is **never removed**.
+
+Only the **vertical axis** is used. Mediolateral and anteroposterior constraints are not applied — adjacent structures legitimately share lateral/AP extents in real patients.
+
+### Modes
+
+| Flag | Behaviour |
+| --- | --- |
+| *(default)* conservative | Remove a non-LCC blob only if it is **entirely** below B's top |
+| `--aggressive` | Remove a non-LCC blob if **any part** of it dips below B's top |
+
+### Usage
+
+```bash
+# Clean a single subject
+python scripts/cleaning/poset_constraint_postprocessing.py \
+    --pred_dir data/predictions/amos_v157 \
+    --poset    data/posets/llm_sessions/llm_claude_v157.json \
+    --subject  amos_0102 \
+    --out_dir  data/predictions/amos_v157_cleaned
+
+# Clean all subjects and evaluate Dice against GT
+python scripts/cleaning/poset_constraint_postprocessing.py \
+    --pred_dir  data/predictions/v201 \
+    --gt_dir    data/datasets/totalseg_v201 \
+    --gt_format totalseg_per_subject \
+    --poset     data/posets/llm_sessions/llm_claude_v157.json \
+    --all_subjects \
+    --csv       data/results/v201_conservative.csv
+
+# Aggressive mode
+python scripts/cleaning/poset_constraint_postprocessing.py \
+    --pred_dir  data/predictions/v201 \
+    --gt_dir    data/datasets/totalseg_v201 \
+    --gt_format totalseg_per_subject \
+    --poset     data/posets/llm_sessions/llm_claude_v157.json \
+    --all_subjects --aggressive \
+    --csv       data/results/v201_aggressive.csv
+```
+
+`--gt_dir` is used **only for Dice evaluation** — it has no effect on the cleaning decisions.
+
+Supported `--gt_format` values: `totalseg_per_subject`, `amos_multilabel`, `flare22_multilabel`, `verse`.
+
+---
+
+## Evaluating Results
+
+```bash
+# Summary for one results directory
+python scripts/cleaning/summarize_results.py data/results/v201_conservative/
+
+# Summary for multiple directories
+python scripts/cleaning/summarize_results.py data/results/v201_conservative/ data/results/v201_aggressive/
+
+# Side-by-side comparison
+python scripts/cleaning/summarize_results.py \
+    data/results/v201_conservative/ data/results/v201_aggressive/ --compare
+
+# Sort options: delta (default), name, improved, voxels
+python scripts/cleaning/summarize_results.py data/results/v201_conservative/ --sort improved
+```
+
+Output shows per-structure mean Dice before/after, delta, number of subjects improved/degraded, and total voxels removed.
+
+---
+
+## Empirical Poset from TotalSegmentator v2.01
+
+`data/structures/totalseg_v2_empirical_poset.json` encodes the empirical spatial ordering of 117 anatomical structures, extracted from **1090 subjects** in the TotalSegmentator v2.01 dataset using `scripts/data_prep/compute_empirical_poset.py`.
+
+### What is stored
+
+For every ordered pair (i, j) and each of the three anatomical axes, the matrix stores the empirical probability:
 
 ```text
-├── assets/                      # UI images, tensors, diagrams
-├── data/
-│   ├── datasets/                # Source datasets (gitignored — large)
-│   ├── predictions/             # TotalSegmentator outputs (gitignored — large)
-│   ├── results/                 # Dice evaluation CSVs (tracked)
-│   ├── posets/                  # Saved poset JSON files
-│   │   ├── llm_sessions/        # LLM-generated posets
-│   │   ├── clinician_sessions/  # Human-annotated sessions
-│   │   └── merged_sessions/     # Multi-rater merged posets
-│   ├── structures/              # Input CoM structure JSON files
-│   └── README.md                # Dataset and results overview
-├── src/anatomy_poset/
-│   ├── core/                    # axis_models, io, matrix_builder, matrix_aggregation
-│   └── gui/                     # PySide6 GUI (main window, dialogs, poset_viewer)
-├── scripts/
-│   ├── poset_constraint_postprocessing.py  # CC-based segmentation cleaning
-│   ├── truncated_fov_experiment.py         # Simulated truncated FOV evaluation
-│   └── llm_poset_builder.py               # LLM-assisted poset construction
-├── run.py                       # Quick-start GUI launcher
-└── README.md
+P(i strictly above j) = count(subjects where i is entirely above j) / count(subjects where both i and j are present)
 ```
+
+"Strictly above" on the vertical axis means the **inferior boundary of i is above the superior boundary of j** — the bounding boxes do not overlap at all. The same strict non-overlap criterion applies to the mediolateral and anteroposterior axes.
+
+Values are `null` for the diagonal and for pairs seen together in fewer than 5 subjects.
+
+### How it was computed
+
+1. **Per subject:** for each segmentation mask, compute its bounding box in normalised [0, 1] image coordinates using the NIfTI affine to map voxel axes to anatomical directions (handles arbitrary orientations via `nibabel`). Structures with fewer than 10 voxels are skipped.
+2. **Per pair:** across all subjects where both structures are present, count how often the strict non-overlap condition holds.
+3. **Probability:** divide the count by the co-occurrence count, rounded to 4 decimal places.
+
+### Structure ordering
+
+Structures are sorted in topological order (top to bottom) using the vertical axis matrix:
+
+- An edge i → j is added if P(i above j) > 0.5.
+- Kahn's algorithm produces a topological sort with no cycles (verified: 0 violations).
+- The sort is consistent with the CoM-based ordering from `totalseg_v2_com.json`.
+
+The resulting matrix has a clean lower triangle (all values ≤ 0.5) and is strongly bimodal: most pairs are either near 0.0 (never above, 5567 exactly zero) or near 1.0 (always above, 669 exactly one), with very little uncertainty in between.
+
+### Reproducing
+
+```bash
+# Step 1 — compute average CoM per structure
+python scripts/data_prep/compute_com_from_gt.py \
+    --gt_dir /scratch/gardonig/totalseg_v201 \
+    --out    data/structures/totalseg_v2_com.json
+
+# Step 2 — compute empirical poset probabilities
+python scripts/data_prep/compute_empirical_poset.py \
+    --gt_dir   /scratch/gardonig/totalseg_v201 \
+    --com_json data/structures/totalseg_v2_com.json \
+    --out      data/structures/totalseg_v2_empirical_poset.json
+```
+
+---
+
+## Data
+
+See [`data/README.md`](data/README.md) for a full table of datasets, predictions, and results.
+
+### Full-body volume tensors
+
+The GUI's Full-Body Volume panel requires precomputed NumPy tensors (not tracked in git):
+
+- `assets/visible_human_tensors/full_body_tensor_rgb.npy`
+- `assets/visible_human_tensors/full_body_tensor.npy`
+
+Contact **Gian** for the download link.
+
+---
+
+## Technical Reference
+
+### Relation matrix
+
+Each axis has an `n×n` tri-valued matrix `M`:
+
+| Value | Meaning |
+| --- | --- |
+| `+1` | Structure `i` is strictly above `j` |
+| `0` | Asked; annotator is unsure |
+| `-1` | `i` is not strictly above `j` |
+| `null` | Not yet asked |
+
+The diagonal is fixed to `-1`. After sorting structures by CoM (descending), the lower triangle is sealed to `-1`. The upper triangle is filled by expert queries and transitivity propagation.
+
+### Matrix construction algorithm
+
+1. Sort structures by CoM on the active axis (descending).
+2. Initialize: diagonal `-1`, lower triangle `-1`, upper triangle `null`.
+3. Query pairs `(i, j)` with `j = i + gap` in order of increasing gap.
+4. After each answer, propagate: transitive `+1` chains, inverse `-1` from `+1`, bilateral mirroring for left/right pairs.
+5. Save: three matrices (`matrix_vertical`, `matrix_mediolateral`, `matrix_anteroposterior`) + structures list.
+
+Bilateral structures (e.g. Left Lung / Right Lung) are asked as a single joint question on the vertical axis.
