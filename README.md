@@ -182,7 +182,7 @@ python scripts/cleaning/poset_constraint_postprocessing.py \
 
 `--gt_dir` is used **only for Dice evaluation** — it has no effect on the cleaning decisions.
 
-Supported `--gt_format` values: `totalseg_per_subject`, `amos_multilabel`, `flare22_multilabel`, `verse`.
+Supported `--gt_format` values: `totalseg_per_subject`, `amos_multilabel`.
 
 ---
 

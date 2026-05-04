@@ -17,6 +17,16 @@ tools/
 # Large data directories (not tracked)
 data/datasets/*
 data/predictions/*
+data/segmentations_Güney/
+
+# Experiment artifacts: raw MRIs, TotalSegmentator outputs, cleaned segmentations
+data/experiments/wraparound/
+data/experiments/wraparound_v3/
+
+# Eval outputs (large CSVs + PNGs tracked separately per experiment)
+data/experiments/wraparound_cleaning_eval_all10/
+data/experiments/wraparound_v3_eval/
+data/experiments/wraparound_v3_eval_t100/
 
 # Poset session files (user-generated, not tracked)
 data/posets/tests/*

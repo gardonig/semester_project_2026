@@ -84,34 +84,6 @@ AMOS_LABEL_MAP: Dict[int, str] = {
     15: "prostate",
 }
 
-# FLARE22 label index → TotalSegmentator v157 structure name
-FLARE22_LABEL_MAP: Dict[int, str] = {
-    1:  "liver",
-    2:  "kidney_right",
-    3:  "spleen",
-    4:  "pancreas",
-    5:  "aorta",
-    6:  "inferior_vena_cava",
-    7:  "adrenal_gland_right",
-    8:  "adrenal_gland_left",
-    9:  "gallbladder",
-    10: "esophagus",
-    11: "stomach",
-    12: "duodenum",
-    13: "kidney_left",
-}
-
-# VerSe2020 label index → TotalSegmentator structure name
-VERSE_LABEL_MAP: Dict[int, str] = {
-    1:  "vertebrae_C1",  2:  "vertebrae_C2",  3:  "vertebrae_C3",
-    4:  "vertebrae_C4",  5:  "vertebrae_C5",  6:  "vertebrae_C6",  7: "vertebrae_C7",
-    8:  "vertebrae_T1",  9:  "vertebrae_T2",  10: "vertebrae_T3",
-    11: "vertebrae_T4",  12: "vertebrae_T5",  13: "vertebrae_T6",
-    14: "vertebrae_T7",  15: "vertebrae_T8",  16: "vertebrae_T9",
-    17: "vertebrae_T10", 18: "vertebrae_T11", 19: "vertebrae_T12",
-    20: "vertebrae_L1",  21: "vertebrae_L2",  22: "vertebrae_L3",
-    23: "vertebrae_L4",  24: "vertebrae_L5",  26: "vertebrae_S1",
-}
 
 DEFAULT_POSET = PROJECT_ROOT / "data" / "posets" / "llm_sessions" / "llm_claude_v157.json"
 DEFAULT_PRED  = PROJECT_ROOT / "data" / "imaging_datasets" / "totalseg_output_amos_v157"
@@ -307,47 +279,6 @@ def load_gt_amos_multilabel(
     return masks, img.affine
 
 
-def load_gt_flare22_multilabel(
-    gt_dir: Path,
-    subject: str,
-    structures: List[str],
-) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[np.ndarray]]:
-    """Load FLARE22 multi-label GT file and split into per-structure binary masks."""
-    gt_path = gt_dir / f"{subject}.nii.gz"
-    if not gt_path.exists():
-        return None, None
-
-    img  = nib.load(str(gt_path))
-    data = np.asarray(img.dataobj, dtype=np.int16)
-
-    masks: Dict[str, np.ndarray] = {}
-    for label_idx, name in FLARE22_LABEL_MAP.items():
-        if name in structures:
-            masks[name] = (data == label_idx)
-
-    return masks, img.affine
-
-
-def load_gt_verse(
-    gt_dir: Path,
-    subject: str,
-    structures: List[str],
-) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[np.ndarray]]:
-    """Load VerSe2020 multi-label GT mask (*_seg-vert_msk.nii.gz)."""
-    subj_dir = gt_dir / subject
-    if not subj_dir.exists():
-        return None, None
-    candidates = sorted(subj_dir.glob("*_seg-vert_msk.nii.gz"))
-    if not candidates:
-        return None, None
-    img  = nib.load(str(candidates[0]))
-    data = np.asarray(img.dataobj, dtype=np.int16)
-    masks: Dict[str, np.ndarray] = {}
-    for label_idx, name in VERSE_LABEL_MAP.items():
-        if name in structures:
-            masks[name] = (data == label_idx)
-    return (masks, img.affine) if masks else (None, None)
-
 
 def load_gt_per_subject(
     gt_dir: Path,
@@ -443,10 +374,6 @@ def run_subject(
     if gt_dir is not None:
         if gt_format == "amos_multilabel":
             gt_masks, gt_affine = load_gt_amos_multilabel(gt_dir, subject, list(common))
-        elif gt_format == "flare22_multilabel":
-            gt_masks, gt_affine = load_gt_flare22_multilabel(gt_dir, subject, list(common))
-        elif gt_format == "verse":
-            gt_masks, gt_affine = load_gt_verse(gt_dir, subject, list(common))
         else:
             gt_masks, gt_affine = load_gt_per_subject(gt_dir, subject, list(common))
 
@@ -549,7 +476,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gt_dir",     default=None,
                    help="GT directory (optional). If absent, only cleaning is done.")
     p.add_argument("--gt_format",  default="amos_multilabel",
-                   choices=["amos_multilabel", "flare22_multilabel", "totalseg_per_subject", "verse"],
+                   choices=["amos_multilabel", "totalseg_per_subject"],
                    help="GT format (default: amos_multilabel)")
     p.add_argument("--out_dir",    default=None,
                    help="Save cleaned predictions here (optional)")

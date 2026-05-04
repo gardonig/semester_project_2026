@@ -1,0 +1,86 @@
+{
+  "structures": [
+    {
+      "name": "Skull",
+      "com_z": 90.0
+    },
+    {
+      "name": "Cervical Spine",
+      "com_z": 80.0
+    },
+    {
+      "name": "Thoracic Spine",
+      "com_z": 70.0
+    },
+    {
+      "name": "Lumbar Spine",
+      "com_z": 60.0
+    },
+    {
+      "name": "Pelvis",
+      "com_z": 50.0
+    },
+    {
+      "name": "Femur",
+      "com_z": 40.0
+    },
+    {
+      "name": "Tibia",
+      "com_z": 30.0
+    },
+    {
+      "name": "Foot",
+      "com_z": 20.0
+    }
+  ],
+  "edges": [
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      0,
+      4
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      1,
+      4
+    ],
+    [
+      2,
+      5
+    ],
+    [
+      2,
+      6
+    ],
+    [
+      3,
+      5
+    ],
+    [
+      3,
+      6
+    ],
+    [
+      4,
+      6
+    ],
+    [
+      5,
+      7
+    ],
+    [
+      6,
+      7
+    ]
+  ]
+}

@@ -1,5 +1,5 @@
 """
-Evaluate three poset cleaning methods on all 18 MRI wrap-around artifact conditions.
+Evaluate three poset cleaning methods across MRI wrap-around artifact conditions.
 
 Methods
 -------
@@ -74,6 +74,28 @@ def dice(pred: np.ndarray, gt: np.ndarray) -> float:
     p, g = pred.astype(bool), gt.astype(bool)
     denom = p.sum() + g.sum()
     return float(2.0 * (p & g).sum() / denom) if denom > 0 else 1.0
+
+
+def precision(pred: np.ndarray, gt: np.ndarray) -> float:
+    p, g = pred.astype(bool), gt.astype(bool)
+    tp = int((p & g).sum())
+    pp = int(p.sum())
+    return tp / pp if pp > 0 else 1.0
+
+
+def recall(pred: np.ndarray, gt: np.ndarray) -> float:
+    p, g = pred.astype(bool), gt.astype(bool)
+    tp = int((p & g).sum())
+    pos = int(g.sum())
+    return tp / pos if pos > 0 else 1.0
+
+
+def tp_fp_fn(pred: np.ndarray, gt: np.ndarray):
+    p, g = pred.astype(bool), gt.astype(bool)
+    tp = int((p & g).sum())
+    fp = int(p.sum()) - tp
+    fn = int(g.sum()) - tp
+    return tp, fp, fn
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +292,9 @@ def method3_middle_out_prior(
                 return None, None
             if exp is not None and 0 <= exp < N:
                 anchor = select_by_prior(cleaned[name], si_ax, exp)
+            elif exp is not None and not (0 <= exp < N):
+                # Structure expected outside this crop — ghost prediction, skip as anchor
+                return None, None
             else:
                 if name not in cc_cache:
                     cc_cache[name] = get_components(cleaned[name])
@@ -394,8 +419,14 @@ CROPS = [
     ("kidney_to_hip",   "kidney_left", "hip_left"),
 ]
 FALLBACKS = {"kidney_left": "kidney_right", "hip_left": "hip_right"}
-TAGS = [f"d{int(d*100):03d}_r{int(r*100):03d}"
-        for d in (0.10, 0.25, 0.50) for r in (0.50, 1.00)]
+# Default sweep — overridden by --d_fracs / --r_vals CLI args
+DEFAULT_D_FRACS = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50)
+DEFAULT_R_VALS  = (0.25, 0.50, 0.75, 1.00)
+
+def build_tags(d_fracs, r_vals):
+    return [f"d{int(d*100):03d}_r{int(r*100):03d}" for d in d_fracs for r in r_vals]
+
+TAGS = build_tags(DEFAULT_D_FRACS, DEFAULT_R_VALS)
 
 MARGIN = 5
 
@@ -420,7 +451,7 @@ def compute_crop_window(gt_dir: Path, anchors: Tuple[str, str],
     return lo, hi
 
 
-def run_evaluation(args) -> List[dict]:
+def run_evaluation(args, tags: Optional[List[str]] = None) -> List[dict]:
     poset = load_poset_from_json(args.poset)
     with open(args.com) as f:
         com_data = json.load(f)
@@ -428,7 +459,20 @@ def run_evaluation(args) -> List[dict]:
 
     data_dir = Path(args.data_dir)
     exp_dir  = Path(args.exp_dir)
-    subj     = args.subject
+
+    subjects = getattr(args, "subjects", None) or [args.subject]
+    all_rows_combined = []
+    for subj in subjects:
+        print(f"\n{'#'*70}")
+        print(f"  SUBJECT: {subj}")
+        print(f"{'#'*70}")
+        rows = _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup, tags)
+        all_rows_combined.extend(rows)
+    return all_rows_combined
+
+
+def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
+                     tags: Optional[List[str]] = None) -> List[dict]:
     gt_dir   = data_dir / subj / "segmentations"
 
     # Load full MRI for geometry
@@ -459,7 +503,7 @@ def run_evaluation(args) -> List[dict]:
         eval_here = sorted(gt_masks)
         print(f"  Evaluable structures in crop: {len(eval_here)}")
 
-        for tag in TAGS:
+        for tag in (tags or TAGS):
             d_str, r_str = tag.split("_")
             d_frac = int(d_str[1:]) / 100.0
             r_val  = int(r_str[1:]) / 100.0
@@ -486,11 +530,14 @@ def run_evaluation(args) -> List[dict]:
 
             pred_si_ax, pred_si_sign = get_si_info(affine)
 
-            # Apply all three methods on ALL predictions
-            c1, r1 = method1_unidirectional(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
-            c2, r2 = method2_symmetric(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
+            # Apply cleaning methods — M1/M2 commented out for speed; re-enable when needed
+            # c1, r1 = method1_unidirectional(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
+            # c2, r2 = method2_symmetric(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold,
                                               com_lookup, crop_lo, crop_hi, full_height)
+            # Stubs so row-building code below still works
+            c1, r1 = all_preds, {n: 0 for n in all_preds}
+            c2, r2 = all_preds, {n: 0 for n in all_preds}
 
             # Evaluate Dice for GT-evaluable structures
             improved = [0, 0, 0]
@@ -503,15 +550,17 @@ def run_evaluation(args) -> List[dict]:
 
                 if has_gt:
                     gt = gt_masks[name]
-                    d0 = dice(all_preds[name], gt)
-                    d1 = dice(c1[name], gt)
-                    d2 = dice(c2[name], gt)
+                    pred0 = all_preds[name]
+                    d0 = dice(pred0, gt)
                     d3 = dice(c3[name], gt)
+                    p0 = precision(pred0, gt)
+                    p3 = precision(c3[name], gt)
+                    rc = recall(pred0, gt)  # recall unchanged by cleaning
+                    tp0, fp0, fn0 = tp_fp_fn(pred0, gt)
 
-                    for k, dk in enumerate([d1, d2, d3]):
-                        delta = dk - d0
-                        if delta > 0.0001:   improved[k] += 1
-                        elif delta < -0.0001: degraded[k] += 1
+                    delta3 = d3 - d0
+                    if delta3 > 0.0001:    improved[2] += 1
+                    elif delta3 < -0.0001: degraded[2] += 1
 
                     tag_rows.append({
                         "subject": subj,
@@ -521,44 +570,134 @@ def run_evaluation(args) -> List[dict]:
                         "tag": tag,
                         "structure": name,
                         "has_gt": True,
-                        "dice_before": round(d0, 5),
-                        "dice_m1":     round(d1, 5),
-                        "dice_m2":     round(d2, 5),
-                        "dice_m3":     round(d3, 5),
-                        "delta_m1":    round(d1 - d0, 5),
-                        "delta_m2":    round(d2 - d0, 5),
-                        "delta_m3":    round(d3 - d0, 5),
-                        "vox_before":  int(all_preds[name].sum()),
-                        "vox_removed_m1": r1.get(name, 0),
-                        "vox_removed_m2": r2.get(name, 0),
-                        "vox_removed_m3": r3.get(name, 0),
+                        "dice_before":      round(d0, 5),
+                        "dice_m3":          round(d3, 5),
+                        "delta_m3":         round(d3 - d0, 5),
+                        "precision_before": round(p0, 5),
+                        "precision_m3":     round(p3, 5),
+                        "delta_prec_m3":    round(p3 - p0, 5),
+                        "recall_before":    round(rc, 5),
+                        "tp_before":        tp0,
+                        "fp_before":        fp0,
+                        "fn_before":        fn0,
+                        "vox_before":       int(pred0.sum()),
+                        "vox_removed_m3":   r3.get(name, 0),
                     })
                 else:
-                    # No GT → any prediction is a false positive; measure reduction
-                    for k, (removed_dict, cln) in enumerate(
-                            [(r1, c1), (r2, c2), (r3, c3)]):
-                        fp_removed[k] += removed_dict.get(name, 0)
+                    fp_removed[2] += r3.get(name, 0)
 
             if tag_rows:
                 mb  = np.mean([r["dice_before"] for r in tag_rows])
-                m1  = np.mean([r["dice_m1"]     for r in tag_rows])
-                m2  = np.mean([r["dice_m2"]     for r in tag_rows])
                 m3  = np.mean([r["dice_m3"]     for r in tag_rows])
                 print(f"    {tag}  n={len(tag_rows):2d} | "
                       f"before={mb:.4f} | "
-                      f"M1={m1:.4f}({m1-mb:+.4f}) "
-                      f"M2={m2:.4f}({m2-mb:+.4f}) "
-                      f"M3={m3:.4f}({m3-mb:+.4f})")
-                print(f"           improved: M1={improved[0]} M2={improved[1]} M3={improved[2]} | "
-                      f"degraded: M1={degraded[0]} M2={degraded[1]} M3={degraded[2]} | "
-                      f"FP removed: M1={fp_removed[0]} M2={fp_removed[1]} M3={fp_removed[2]}")
+                      f"M3={m3:.4f}({m3-mb:+.4f}) | "
+                      f"improved={improved[2]} degraded={degraded[2]} FP_removed={fp_removed[2]}")
             all_rows.extend(tag_rows)
 
     return all_rows
 
 
 # ---------------------------------------------------------------------------
-# Plotting
+# Markdown report
+# ---------------------------------------------------------------------------
+
+def make_report(df, out_dir: Path, n_total: int, has_prec: bool, thresh: float = 0.0001) -> None:
+    import pandas as pd
+
+    def pct(n): return f"{100*n/n_total:.1f}%"
+
+    def section_table(grp_col, label):
+        rows_md = []
+        groups = sorted(df[grp_col].unique())
+        header = f"| {label} | Mean ΔDice | Median ΔDice | Imp↑ | Deg↓ | Net |"
+        if has_prec:
+            header += " Mean ΔPrec | Prec Imp↑ | Prec Deg↓ | Prec Net |"
+        rows_md.append(header)
+        sep = "|---|---|---|---|---|---|"
+        if has_prec:
+            sep += "---|---|---|---|"
+        rows_md.append(sep)
+        for g in groups:
+            sub = df[df[grp_col] == g]
+            n = len(sub)
+            imp  = (sub["delta_m3"] >  thresh).sum()
+            deg  = (sub["delta_m3"] < -thresh).sum()
+            row  = (f"| {g} | {sub['delta_m3'].mean():+.5f} | {sub['delta_m3'].median():+.5f} |"
+                    f" {imp} ({100*imp/n:.1f}%) | {deg} ({100*deg/n:.1f}%) | {imp-deg:+d} |")
+            if has_prec:
+                pimp = (sub["delta_prec_m3"] >  thresh).sum()
+                pdeg = (sub["delta_prec_m3"] < -thresh).sum()
+                row += (f" {sub['delta_prec_m3'].mean():+.5f} |"
+                        f" {pimp} ({100*pimp/n:.1f}%) | {pdeg} ({100*pdeg/n:.1f}%) | {pimp-pdeg:+d} |")
+            rows_md.append(row)
+        return "\n".join(rows_md)
+
+    lines = [
+        "# M3 Cleaning Evaluation Report",
+        "",
+        f"**Total structure×condition pairs:** {n_total}  ",
+        f"**Threshold:** {thresh}",
+        "",
+        "---",
+        "## Overall",
+        "",
+        f"| Metric | Mean | Median | Std | Improved | Degraded | Net |",
+        f"|--------|------|--------|-----|----------|----------|-----|",
+    ]
+    for col, name in [("delta_m3", "Δ Dice")] + ([("delta_prec_m3", "Δ Precision")] if has_prec else []):
+        imp = (df[col] > thresh).sum()
+        deg = (df[col] < -thresh).sum()
+        lines.append(
+            f"| {name} | {df[col].mean():+.5f} | {df[col].median():+.5f} | {df[col].std():.5f}"
+            f" | {imp} ({pct(imp)}) | {deg} ({pct(deg)}) | {imp-deg:+d} |"
+        )
+
+    lines += ["", "---", "## By shift fraction (d)", "", section_table("d_frac", "d")]
+    lines += ["", "---", "## By ghost intensity (r)", "", section_table("r_val", "r")]
+    lines += ["", "---", "## By crop region", "", section_table("crop", "crop")]
+
+    lines += ["", "---", "## Per structure (sorted by net Dice improvement)", ""]
+    struct_col = ["structure", "delta_m3"]
+    if has_prec:
+        struct_col.append("delta_prec_m3")
+    sg = df.groupby("structure")[struct_col[1:]].agg(
+        mean_dice=("delta_m3", "mean"),
+        imp_dice=("delta_m3", lambda x: (x > thresh).sum()),
+        deg_dice=("delta_m3", lambda x: (x < -thresh).sum()),
+    )
+    if has_prec:
+        sg["mean_prec"] = df.groupby("structure")["delta_prec_m3"].mean()
+        sg["imp_prec"]  = df.groupby("structure")["delta_prec_m3"].apply(lambda x: (x > thresh).sum())
+        sg["deg_prec"]  = df.groupby("structure")["delta_prec_m3"].apply(lambda x: (x < -thresh).sum())
+    sg["net_dice"] = sg["imp_dice"] - sg["deg_dice"]
+    sg = sg.sort_values("net_dice", ascending=False)
+
+    hdr = "| Structure | Mean ΔDice | Imp↑ | Deg↓ | Net |"
+    sep = "|-----------|-----------|------|------|-----|"
+    if has_prec:
+        hdr += " Mean ΔPrec | Prec Imp↑ | Prec Deg↓ |"
+        sep += "-----------|-----------|-----------|"
+    lines += [hdr, sep]
+    for struct, row in sg.iterrows():
+        n_s = len(df[df["structure"] == struct])
+        r = (f"| {struct} | {row['mean_dice']:+.5f} |"
+             f" {int(row['imp_dice'])} ({100*row['imp_dice']/n_s:.1f}%) |"
+             f" {int(row['deg_dice'])} ({100*row['deg_dice']/n_s:.1f}%) |"
+             f" {int(row['net_dice']):+d} |")
+        if has_prec:
+            r += (f" {row['mean_prec']:+.5f} |"
+                  f" {int(row['imp_prec'])} ({100*row['imp_prec']/n_s:.1f}%) |"
+                  f" {int(row['deg_prec'])} ({100*row['deg_prec']/n_s:.1f}%) |")
+        lines.append(r)
+
+    report_path = out_dir / "report.md"
+    report_path.write_text("\n".join(lines))
+    print(f"Report → {report_path}")
+
+
+# ---------------------------------------------------------------------------
+# Plotting  (M3 only — M1/M2 commented out until full dataset available)
 # ---------------------------------------------------------------------------
 
 def make_plots(rows: List[dict], out_dir: Path) -> None:
@@ -566,87 +705,267 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     df = pd.DataFrame(rows)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    methods  = ["M1 (unidirectional)", "M2 (symmetric)", "M3 (middle-out+prior)"]
-    delta_cols = ["delta_m1", "delta_m2", "delta_m3"]
-    colors   = ["#4C72B0", "#DD8452", "#55A868"]
+    M3_COLOR  = "#55A868"
+    R_COLORS  = {0.25: "#a8d5e2", 0.50: "#4a9fb5", 0.75: "#1f6d84", 1.00: "#0a3e50"}
+    D_COLORS  = {0.05: "#fddbc7", 0.10: "#f4a582", 0.15: "#d6604d",
+                 0.20: "#b2182b", 0.25: "#8b0000", 0.30: "#67001f",
+                 0.35: "#ffeda0", 0.40: "#feb24c", 0.45: "#f03b20", 0.50: "#bd0026"}
 
-    # --- 1. Box plot: Δ Dice per method ---
-    fig, ax = plt.subplots(figsize=(8, 5))
-    data = [df[col].values for col in delta_cols]
-    bp = ax.boxplot(data, patch_artist=True, medianprops=dict(color="black", linewidth=2))
-    for patch, color in zip(bp["boxes"], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
-    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
-    ax.set_xticklabels(methods, fontsize=9)
-    ax.set_ylabel("Δ Dice (after − before)")
-    ax.set_title("Dice improvement distribution across all conditions & structures")
-    plt.tight_layout()
-    plt.savefig(out_dir / "boxplot_delta_dice.png", dpi=150)
-    plt.close()
+    r_vals  = sorted(df["r_val"].unique())
+    d_fracs = sorted(df["d_frac"].unique())
 
-    # --- 2. Bar chart: mean Δ Dice grouped by d_frac ---
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=True)
-    for ax, col, method, color in zip(axes, delta_cols, methods, colors):
-        grp = df.groupby("d_frac")[col].mean()
-        ax.bar(grp.index.astype(str), grp.values, color=color, alpha=0.8)
+    # helper: grouped bar chart
+    def grouped_bar(ax, pivot, group_colors, xlabel, ylabel, title):
+        """pivot: DataFrame where rows=x-groups, columns=bar-groups."""
+        n_groups = len(pivot)
+        n_bars   = len(pivot.columns)
+        width    = 0.8 / n_bars
+        x        = np.arange(n_groups)
+        for k, col in enumerate(pivot.columns):
+            offset = (k - n_bars / 2 + 0.5) * width
+            color  = group_colors.get(col, "#888888")
+            ax.bar(x + offset, pivot[col].values, width=width * 0.9,
+                   color=color, alpha=0.85, label=f"r={col}" if isinstance(col, float) else str(col))
         ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
-        ax.set_title(method, fontsize=9)
-        ax.set_xlabel("d (shift fraction)")
-        ax.set_ylabel("Mean Δ Dice")
-    plt.suptitle("Effect of shift fraction on mean Dice improvement", y=1.02)
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(v) for v in pivot.index], fontsize=8)
+        ax.set_xlabel(xlabel, fontsize=9)
+        ax.set_ylabel(ylabel, fontsize=9)
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=7, ncol=2)
+
+    # --- 1. ΔDice by d, grouped bars per r ---
+    pivot_d_r = df.groupby(["d_frac", "r_val"])["delta_m3"].mean().unstack("r_val")
+    fig, ax = plt.subplots(figsize=(12, 4))
+    grouped_bar(ax, pivot_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Dice (M3)",
+                "M3: Δ Dice by shift fraction, split by ghost intensity r")
     plt.tight_layout()
     plt.savefig(out_dir / "bar_delta_by_d.png", dpi=150)
     plt.close()
 
-    # --- 3. Bar chart: mean Δ Dice grouped by crop ---
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=True)
-    for ax, col, method, color in zip(axes, delta_cols, methods, colors):
-        grp = df.groupby("crop")[col].mean()
-        ax.bar(range(len(grp)), grp.values, color=color, alpha=0.8)
-        ax.set_xticks(range(len(grp)))
-        ax.set_xticklabels([c.replace("_to_", "→") for c in grp.index], fontsize=7, rotation=15)
-        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
-        ax.set_title(method, fontsize=9)
-        ax.set_ylabel("Mean Δ Dice")
-    plt.suptitle("Effect of crop region on mean Dice improvement", y=1.02)
+    # --- 2. ΔDice by r, grouped bars per d ---
+    pivot_r_d = df.groupby(["r_val", "d_frac"])["delta_m3"].mean().unstack("d_frac")
+    fig, ax = plt.subplots(figsize=(10, 4))
+    grouped_bar(ax, pivot_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Dice (M3)",
+                "M3: Δ Dice by ghost intensity, split by shift fraction d")
+    plt.tight_layout()
+    plt.savefig(out_dir / "bar_delta_by_r.png", dpi=150)
+    plt.close()
+
+    # --- 3. ΔDice by crop, grouped bars per r ---
+    pivot_crop_r = df.groupby(["crop", "r_val"])["delta_m3"].mean().unstack("r_val")
+    fig, ax = plt.subplots(figsize=(9, 4))
+    grouped_bar(ax, pivot_crop_r, R_COLORS, "Crop region", "Mean Δ Dice (M3)",
+                "M3: Δ Dice by crop region, split by ghost intensity r")
+    ax.set_xticklabels([c.replace("_to_", "→") for c in pivot_crop_r.index], fontsize=8)
     plt.tight_layout()
     plt.savefig(out_dir / "bar_delta_by_crop.png", dpi=150)
     plt.close()
 
-    # --- 4. Scatter: M1 vs M2 vs M3 per-structure mean delta ---
-    mean_per_struct = df.groupby("structure")[delta_cols].mean().reset_index()
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    for ax, (xa, xm), (ya, ym) in zip(axes,
-            [("delta_m1", "M1"), ("delta_m1", "M1")],
-            [("delta_m2", "M2"), ("delta_m3", "M3")]):
-        ax.scatter(mean_per_struct[xa], mean_per_struct[ya], s=18, alpha=0.6)
-        lim = max(abs(mean_per_struct[[xa, ya]].values).max() * 1.1, 0.01)
-        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
-        ax.axhline(0, color="gray", lw=0.6); ax.axvline(0, color="gray", lw=0.6)
-        ax.plot([-lim, lim], [-lim, lim], "k--", lw=0.6, alpha=0.4)
-        ax.set_xlabel(f"Mean Δ Dice {xm}")
-        ax.set_ylabel(f"Mean Δ Dice {ym}")
-        ax.set_title(f"{xm} vs {ym} per structure")
+    # --- 4. Box plot: ΔDice and ΔPrecision for M3 ---
+    has_prec = "delta_prec_m3" in df.columns
+    ncols = 2 if has_prec else 1
+    fig, axes = plt.subplots(1, ncols, figsize=(5 * ncols, 5))
+    axes = [axes] if ncols == 1 else axes
+    for ax, col, ylabel in zip(
+        axes,
+        ["delta_m3"] + (["delta_prec_m3"] if has_prec else []),
+        ["Δ Dice (after − before)"] + (["Δ Precision (after − before)"] if has_prec else []),
+    ):
+        bp = ax.boxplot([df[col].values], patch_artist=True,
+                        medianprops=dict(color="black", linewidth=2))
+        bp["boxes"][0].set_facecolor(M3_COLOR); bp["boxes"][0].set_alpha(0.7)
+        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+        ax.set_xticklabels(["M3 (middle-out+prior)"], fontsize=9)
+        ax.set_ylabel(ylabel)
+    plt.suptitle("M3 improvement distribution — all conditions & structures")
     plt.tight_layout()
-    plt.savefig(out_dir / "scatter_method_comparison.png", dpi=150)
+    plt.savefig(out_dir / "boxplot_delta_dice.png", dpi=150)
     plt.close()
 
-    # --- 5. Summary table printed ---
-    print("\n" + "="*70)
-    print("SUMMARY ACROSS ALL 18 CONDITIONS")
-    print("="*70)
-    n_total = len(df)
-    for col, name in zip(delta_cols, methods):
-        improved = (df[col] > 0.0001).sum()
-        degraded = (df[col] < -0.0001).sum()
-        print(f"\n{name}")
-        print(f"  Mean Δ Dice : {df[col].mean():+.5f}  ± {df[col].std():.5f}")
-        print(f"  Median Δ   : {df[col].median():+.5f}")
-        print(f"  Improved   : {improved}/{n_total} ({100*improved/n_total:.1f}%)")
-        print(f"  Degraded   : {degraded}/{n_total} ({100*degraded/n_total:.1f}%)")
+    def make_heatmap(ax, pivot, title, cbar_label):
+        vmax = max(abs(pivot.values).max(), 1e-6)
+        im = ax.imshow(pivot.values, aspect="auto", cmap="RdYlGn", vmin=-vmax, vmax=vmax)
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels([f"r={v}" for v in pivot.columns], fontsize=8)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels([f"d={v}" for v in pivot.index], fontsize=8)
+        ax.set_title(title, fontsize=10)
+        for i in range(len(pivot.index)):
+            for j in range(len(pivot.columns)):
+                val = pivot.values[i, j]
+                ax.text(j, i, f"{val:+.4f}", ha="center", va="center", fontsize=6,
+                        color="black" if abs(val) < 0.6 * vmax else "white")
+        plt.colorbar(im, ax=ax, label=cbar_label)
 
-    print(f"\nPlots saved to {out_dir}/")
+    # --- 5. Side-by-side heatmaps: ΔDice and ΔPrecision ---
+    pivot_dice_heat = df.groupby(["d_frac", "r_val"])["delta_m3"].mean().unstack("r_val")
+    if has_prec:
+        pivot_prec_heat = df.groupby(["d_frac", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
+        fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+        make_heatmap(axes[0], pivot_dice_heat, "M3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
+        make_heatmap(axes[1], pivot_prec_heat, "M3: Mean Δ Precision per (d, r)", "Mean Δ Precision")
+    else:
+        fig, ax = plt.subplots(figsize=(6, 5))
+        make_heatmap(ax, pivot_dice_heat, "M3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
+    plt.tight_layout()
+    plt.savefig(out_dir / "heatmap_delta_d_r.png", dpi=150)
+    plt.close()
+
+    if has_prec:
+        # --- 6. ΔPrecision by d, grouped bars per r ---
+        pivot_prec_d_r = df.groupby(["d_frac", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
+        fig, ax = plt.subplots(figsize=(12, 4))
+        grouped_bar(ax, pivot_prec_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Precision (M3)",
+                    "M3: Δ Precision by shift fraction, split by ghost intensity r")
+        plt.tight_layout()
+        plt.savefig(out_dir / "bar_prec_by_d.png", dpi=150)
+        plt.close()
+
+        # --- 7. ΔPrecision by r, grouped bars per d ---
+        pivot_prec_r_d = df.groupby(["r_val", "d_frac"])["delta_prec_m3"].mean().unstack("d_frac")
+        fig, ax = plt.subplots(figsize=(10, 4))
+        grouped_bar(ax, pivot_prec_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Precision (M3)",
+                    "M3: Δ Precision by ghost intensity, split by shift fraction d")
+        plt.tight_layout()
+        plt.savefig(out_dir / "bar_prec_by_r.png", dpi=150)
+        plt.close()
+
+        # --- 8. ΔPrecision by crop, grouped bars per r ---
+        pivot_prec_crop = df.groupby(["crop", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
+        fig, ax = plt.subplots(figsize=(9, 4))
+        grouped_bar(ax, pivot_prec_crop, R_COLORS, "Crop region", "Mean Δ Precision (M3)",
+                    "M3: Δ Precision by crop region, split by ghost intensity r")
+        ax.set_xticklabels([c.replace("_to_", "→") for c in pivot_prec_crop.index], fontsize=8)
+        plt.tight_layout()
+        plt.savefig(out_dir / "bar_prec_by_crop.png", dpi=150)
+        plt.close()
+
+        # --- 9. Scatter: ΔDice vs ΔPrecision per structure ---
+        mean_per_struct = df.groupby("structure")[["delta_m3", "delta_prec_m3"]].mean().reset_index()
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.scatter(mean_per_struct["delta_m3"], mean_per_struct["delta_prec_m3"],
+                   s=20, alpha=0.6, color=M3_COLOR)
+        lim_x = max(abs(mean_per_struct["delta_m3"]).max() * 1.1, 0.01)
+        lim_y = max(abs(mean_per_struct["delta_prec_m3"]).max() * 1.1, 0.01)
+        ax.set_xlim(-lim_x, lim_x); ax.set_ylim(-lim_y, lim_y)
+        ax.axhline(0, color="gray", lw=0.6); ax.axvline(0, color="gray", lw=0.6)
+        ax.set_xlabel("Mean Δ Dice (M3)", fontsize=10)
+        ax.set_ylabel("Mean Δ Precision (M3)", fontsize=10)
+        ax.set_title("Δ Dice vs Δ Precision per structure (M3)", fontsize=10)
+        for _, row in mean_per_struct.iterrows():
+            if abs(row["delta_m3"]) > 0.005 or abs(row["delta_prec_m3"]) > 0.01:
+                ax.annotate(row["structure"], (row["delta_m3"], row["delta_prec_m3"]),
+                            fontsize=5, alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(out_dir / "scatter_dice_vs_prec.png", dpi=150)
+        plt.close()
+
+    # --- improved/degraded count helper ---
+    THRESH = 0.0001
+
+    def count_stacked_bar(ax, grp_col, delta_col, title, xlabel):
+        """Stacked bar: green=improved, red=degraded, gray=neutral, per group."""
+        groups = sorted(df[grp_col].unique())
+        improved = [( df[df[grp_col]==g][delta_col] >  THRESH).sum() for g in groups]
+        degraded = [( df[df[grp_col]==g][delta_col] < -THRESH).sum() for g in groups]
+        neutral  = [( df[df[grp_col]==g][delta_col].between(-THRESH, THRESH)).sum() for g in groups]
+        x = np.arange(len(groups))
+        ax.bar(x, improved, color="#55A868", alpha=0.85, label="improved")
+        ax.bar(x, neutral,  bottom=improved, color="#cccccc", alpha=0.6, label="neutral")
+        ax.bar(x, degraded, bottom=[i+n for i,n in zip(improved,neutral)],
+               color="#C44E52", alpha=0.85, label="degraded")
+        ax.set_xticks(x)
+        xlabels = [str(g).replace("_to_","→") for g in groups]
+        ax.set_xticklabels(xlabels, fontsize=8)
+        ax.set_xlabel(xlabel, fontsize=9)
+        ax.set_ylabel("# structure×condition pairs", fontsize=9)
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=8)
+
+    def count_diverging_bar(ax, grp_col, delta_col, title, xlabel):
+        """Diverging bar: improved above 0, degraded below 0, net annotated."""
+        groups = sorted(df[grp_col].unique())
+        improved = np.array([(df[df[grp_col]==g][delta_col] >  THRESH).sum() for g in groups], float)
+        degraded = np.array([(df[df[grp_col]==g][delta_col] < -THRESH).sum() for g in groups], float)
+        x = np.arange(len(groups))
+        ax.bar(x,  improved, color="#55A868", alpha=0.85, label="improved")
+        ax.bar(x, -degraded, color="#C44E52", alpha=0.85, label="degraded")
+        ax.axhline(0, color="black", linewidth=0.8)
+        for xi, imp, deg in zip(x, improved, degraded):
+            net = int(imp - deg)
+            ax.text(xi, max(imp, 1) + 0.5, f"net\n{net:+d}", ha="center", va="bottom",
+                    fontsize=6, color="black")
+        ax.set_xticks(x)
+        xlabels = [str(g).replace("_to_","→") for g in groups]
+        ax.set_xticklabels(xlabels, fontsize=8)
+        ax.set_xlabel(xlabel, fontsize=9)
+        ax.set_ylabel("# pairs", fontsize=9)
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=8)
+
+    for delta_col, metric, fname_suffix in [
+        ("delta_m3",      "Dice",      "dice"),
+        ("delta_prec_m3", "Precision", "prec"),
+    ]:
+        if delta_col not in df.columns:
+            continue
+
+        # stacked counts by d, r, crop
+        fig, axes = plt.subplots(1, 3, figsize=(16, 4))
+        count_stacked_bar(axes[0], "d_frac", delta_col,
+                          f"Δ{metric} counts by shift d", "d (shift fraction)")
+        count_stacked_bar(axes[1], "r_val",  delta_col,
+                          f"Δ{metric} counts by ghost r", "r (ghost intensity)")
+        count_stacked_bar(axes[2], "crop",   delta_col,
+                          f"Δ{metric} counts by crop",    "Crop")
+        plt.suptitle(f"M3: improved / neutral / degraded counts ({metric})", y=1.01)
+        plt.tight_layout()
+        plt.savefig(out_dir / f"counts_stacked_{fname_suffix}.png", dpi=150)
+        plt.close()
+
+        # diverging counts by d
+        fig, ax = plt.subplots(figsize=(12, 4))
+        count_diverging_bar(ax, "d_frac", delta_col,
+                            f"M3: net Δ{metric} improvement count by d", "d (shift fraction)")
+        plt.tight_layout()
+        plt.savefig(out_dir / f"counts_diverging_{fname_suffix}_by_d.png", dpi=150)
+        plt.close()
+
+    # per-structure degradation breakdown
+    struct_counts = df.groupby("structure").apply(
+        lambda g: pd.Series({
+            "improved_dice":  (g["delta_m3"]      >  THRESH).sum(),
+            "degraded_dice":  (g["delta_m3"]      < -THRESH).sum(),
+            "improved_prec":  (g["delta_prec_m3"] >  THRESH).sum() if "delta_prec_m3" in g else 0,
+            "degraded_prec":  (g["delta_prec_m3"] < -THRESH).sum() if "delta_prec_m3" in g else 0,
+        })
+    ).reset_index()
+    struct_counts["net_dice"] = struct_counts["improved_dice"] - struct_counts["degraded_dice"]
+    struct_counts_sorted = struct_counts.sort_values("net_dice")
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    for ax, imp_col, deg_col, title in [
+        (axes[0], "improved_dice", "degraded_dice", "Dice"),
+        (axes[1], "improved_prec", "degraded_prec", "Precision"),
+    ]:
+        y = np.arange(len(struct_counts_sorted))
+        ax.barh(y,  struct_counts_sorted[imp_col].values, color="#55A868", alpha=0.85, label="improved")
+        ax.barh(y, -struct_counts_sorted[deg_col].values, color="#C44E52", alpha=0.85, label="degraded")
+        ax.axvline(0, color="black", lw=0.8)
+        ax.set_yticks(y)
+        ax.set_yticklabels(struct_counts_sorted["structure"].values, fontsize=5)
+        ax.set_xlabel("# conditions", fontsize=9)
+        ax.set_title(f"M3: per-structure Δ{title} counts\n(sorted by net Dice)", fontsize=9)
+        ax.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "counts_per_structure.png", dpi=150)
+    plt.close()
+
+    # --- final Summary + markdown report ---
+    n_total = len(df)
+    make_report(df, out_dir, n_total, has_prec, THRESH)
+    print(f"\nPlots + report saved to {out_dir}/")
 
 
 # ---------------------------------------------------------------------------
@@ -660,13 +979,25 @@ def main():
     p.add_argument("--exp_dir",   default="data/experiments/wraparound")
     p.add_argument("--poset",     default="data/structures/totalseg_v2_empirical_poset.json")
     p.add_argument("--com",       default="data/structures/totalseg_v2_com.json")
-    p.add_argument("--subject",   default="s0175")
+    p.add_argument("--subject",   default="s0175",
+                   help="Single subject (ignored if --subjects is given)")
+    p.add_argument("--subjects",  nargs="+", default=None,
+                   help="One or more subjects, e.g. s0175 s0236 s0219")
     p.add_argument("--out_dir",   default="data/experiments/wraparound_cleaning_eval")
     p.add_argument("--threshold", type=float, default=0.95,
                    help="Min poset probability to count as hard constraint (default: 0.95)")
+    p.add_argument("--d_fracs", type=float, nargs="+", default=None,
+                   help="Shift fractions to evaluate, e.g. 0.05 0.10 0.25 0.50 (default: all 10)")
+    p.add_argument("--r_vals", type=float, nargs="+", default=None,
+                   help="Ghost intensities to evaluate, e.g. 0.25 0.50 0.75 1.00 (default: all 4)")
     args = p.parse_args()
 
-    rows = run_evaluation(args)
+    d_fracs = args.d_fracs or DEFAULT_D_FRACS
+    r_vals  = args.r_vals  or DEFAULT_R_VALS
+    tags    = build_tags(d_fracs, r_vals)
+    print(f"Evaluating {len(tags)} conditions: d={[f'{d:.2f}' for d in d_fracs]}  r={r_vals}")
+
+    rows = run_evaluation(args, tags=tags)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
