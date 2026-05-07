@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regenerate all wrap-around artifacts (V3 normalisation) for all 10 subjects.
+# Regenerate all wrap-around artifacts (WM3 normalisation) for all 10 subjects.
 # CPU-only — no GPU needed. Run in an srun session or as a non-GPU sbatch.
 #
 # Usage (on octopus03 srun session):
@@ -12,7 +12,7 @@ PYTHON="${PYTHON:-/scratch/gardonig/totalseg_env/bin/python}"
 
 SUBJECTS=(s0175 s0236 s0219 s0187 s0022 s0167 s0186 s0237 s0243 s0250)
 
-echo "Simulating V3 artifacts → ${OUT_DIR}"
+echo "Simulating WM3 artifacts → ${OUT_DIR}"
 echo "MRI_DIR = ${MRI_DIR}"
 echo ""
 

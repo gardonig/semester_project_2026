@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=clean_m3_arr
+#SBATCH --job-name=clean_cm3_arr
 #SBATCH --nodelist=octopus03
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --time=00:10:00
-#SBATCH --output=/scratch/gardonig/logs/clean_m3_%A_%a.out
-#SBATCH --error=/scratch/gardonig/logs/clean_m3_%A_%a.err
+#SBATCH --output=/scratch/gardonig/logs/clean_cm3_%A_%a.out
+#SBATCH --error=/scratch/gardonig/logs/clean_cm3_%A_%a.err
 
 SEGDIRS_LIST="${SEGDIRS_LIST:-/home/gardonig/segdirs_list.txt}"
 THRESHOLD="${THRESHOLD:-0.95}"
@@ -35,5 +35,5 @@ fi
     --out_dir   "${CLEAN_DIR}" \
     --poset     "${POSET}" \
     --com       "${COM}" \
-    --method    m3 \
+    --method    cm3 \
     --threshold "${THRESHOLD}"

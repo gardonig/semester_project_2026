@@ -530,7 +530,7 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
 
             pred_si_ax, pred_si_sign = get_si_info(affine)
 
-            # Apply cleaning methods — M1/M2 commented out for speed; re-enable when needed
+            # Apply cleaning methods — CM1/CM2 commented out for speed; re-enable when needed
             # c1, r1 = method1_unidirectional(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             # c2, r2 = method2_symmetric(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold,
@@ -591,7 +591,7 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
                 m3  = np.mean([r["dice_m3"]     for r in tag_rows])
                 print(f"    {tag}  n={len(tag_rows):2d} | "
                       f"before={mb:.4f} | "
-                      f"M3={m3:.4f}({m3-mb:+.4f}) | "
+                      f"CM3={m3:.4f}({m3-mb:+.4f}) | "
                       f"improved={improved[2]} degraded={degraded[2]} FP_removed={fp_removed[2]}")
             all_rows.extend(tag_rows)
 
@@ -602,7 +602,8 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
 # Markdown report
 # ---------------------------------------------------------------------------
 
-def make_report(df, out_dir: Path, n_total: int, has_prec: bool, thresh: float = 0.0001) -> None:
+def make_report(df, out_dir: Path, n_total: int, has_prec: bool,
+                thresh: float = 0.0001, poset_threshold: float = 0.95) -> None:
     import pandas as pd
 
     def pct(n): return f"{100*n/n_total:.1f}%"
@@ -634,10 +635,11 @@ def make_report(df, out_dir: Path, n_total: int, has_prec: bool, thresh: float =
         return "\n".join(rows_md)
 
     lines = [
-        "# M3 Cleaning Evaluation Report",
+        "# CM3 Cleaning Evaluation Report",
         "",
         f"**Total structure×condition pairs:** {n_total}  ",
-        f"**Threshold:** {thresh}",
+        f"**Poset constraint threshold:** {poset_threshold} "
+        f"({'all constraints' if poset_threshold == 1.0 else f'≥{int(poset_threshold*100)}% probability'})  ",
         "",
         "---",
         "## Overall",
@@ -697,10 +699,10 @@ def make_report(df, out_dir: Path, n_total: int, has_prec: bool, thresh: float =
 
 
 # ---------------------------------------------------------------------------
-# Plotting  (M3 only — M1/M2 commented out until full dataset available)
+# Plotting  (CM3 only — CM1/CM2 commented out until full dataset available)
 # ---------------------------------------------------------------------------
 
-def make_plots(rows: List[dict], out_dir: Path) -> None:
+def make_plots(rows: List[dict], out_dir: Path, poset_threshold: float = 0.95) -> None:
     import pandas as pd
     df = pd.DataFrame(rows)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -715,7 +717,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     d_fracs = sorted(df["d_frac"].unique())
 
     # helper: grouped bar chart
-    def grouped_bar(ax, pivot, group_colors, xlabel, ylabel, title):
+    def grouped_bar(ax, pivot, group_colors, xlabel, ylabel, title, col_prefix="r"):
         """pivot: DataFrame where rows=x-groups, columns=bar-groups."""
         n_groups = len(pivot)
         n_bars   = len(pivot.columns)
@@ -725,7 +727,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
             offset = (k - n_bars / 2 + 0.5) * width
             color  = group_colors.get(col, "#888888")
             ax.bar(x + offset, pivot[col].values, width=width * 0.9,
-                   color=color, alpha=0.85, label=f"r={col}" if isinstance(col, float) else str(col))
+                   color=color, alpha=0.85, label=f"{col_prefix}={col}" if isinstance(col, float) else str(col))
         ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
         ax.set_xticks(x)
         ax.set_xticklabels([str(v) for v in pivot.index], fontsize=8)
@@ -737,8 +739,8 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     # --- 1. ΔDice by d, grouped bars per r ---
     pivot_d_r = df.groupby(["d_frac", "r_val"])["delta_m3"].mean().unstack("r_val")
     fig, ax = plt.subplots(figsize=(12, 4))
-    grouped_bar(ax, pivot_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Dice (M3)",
-                "M3: Δ Dice by shift fraction, split by ghost intensity r")
+    grouped_bar(ax, pivot_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Dice (CM3)",
+                "CM3: Δ Dice by shift fraction, split by ghost intensity r")
     plt.tight_layout()
     plt.savefig(out_dir / "bar_delta_by_d.png", dpi=150)
     plt.close()
@@ -746,8 +748,8 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     # --- 2. ΔDice by r, grouped bars per d ---
     pivot_r_d = df.groupby(["r_val", "d_frac"])["delta_m3"].mean().unstack("d_frac")
     fig, ax = plt.subplots(figsize=(10, 4))
-    grouped_bar(ax, pivot_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Dice (M3)",
-                "M3: Δ Dice by ghost intensity, split by shift fraction d")
+    grouped_bar(ax, pivot_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Dice (CM3)",
+                "CM3: Δ Dice by ghost intensity, split by shift fraction d", col_prefix="d")
     plt.tight_layout()
     plt.savefig(out_dir / "bar_delta_by_r.png", dpi=150)
     plt.close()
@@ -755,14 +757,14 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     # --- 3. ΔDice by crop, grouped bars per r ---
     pivot_crop_r = df.groupby(["crop", "r_val"])["delta_m3"].mean().unstack("r_val")
     fig, ax = plt.subplots(figsize=(9, 4))
-    grouped_bar(ax, pivot_crop_r, R_COLORS, "Crop region", "Mean Δ Dice (M3)",
-                "M3: Δ Dice by crop region, split by ghost intensity r")
+    grouped_bar(ax, pivot_crop_r, R_COLORS, "Crop region", "Mean Δ Dice (CM3)",
+                "CM3: Δ Dice by crop region, split by ghost intensity r")
     ax.set_xticklabels([c.replace("_to_", "→") for c in pivot_crop_r.index], fontsize=8)
     plt.tight_layout()
     plt.savefig(out_dir / "bar_delta_by_crop.png", dpi=150)
     plt.close()
 
-    # --- 4. Box plot: ΔDice and ΔPrecision for M3 ---
+    # --- 4. Box plot: ΔDice and ΔPrecision for CM3 ---
     has_prec = "delta_prec_m3" in df.columns
     ncols = 2 if has_prec else 1
     fig, axes = plt.subplots(1, ncols, figsize=(5 * ncols, 5))
@@ -776,9 +778,9 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
                         medianprops=dict(color="black", linewidth=2))
         bp["boxes"][0].set_facecolor(M3_COLOR); bp["boxes"][0].set_alpha(0.7)
         ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
-        ax.set_xticklabels(["M3 (middle-out+prior)"], fontsize=9)
+        ax.set_xticklabels(["CM3 (middle-out+prior)"], fontsize=9)
         ax.set_ylabel(ylabel)
-    plt.suptitle("M3 improvement distribution — all conditions & structures")
+    plt.suptitle("CM3 improvement distribution — all conditions & structures")
     plt.tight_layout()
     plt.savefig(out_dir / "boxplot_delta_dice.png", dpi=150)
     plt.close()
@@ -803,11 +805,11 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
     if has_prec:
         pivot_prec_heat = df.groupby(["d_frac", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
         fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-        make_heatmap(axes[0], pivot_dice_heat, "M3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
-        make_heatmap(axes[1], pivot_prec_heat, "M3: Mean Δ Precision per (d, r)", "Mean Δ Precision")
+        make_heatmap(axes[0], pivot_dice_heat, "CM3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
+        make_heatmap(axes[1], pivot_prec_heat, "CM3: Mean Δ Precision per (d, r)", "Mean Δ Precision")
     else:
         fig, ax = plt.subplots(figsize=(6, 5))
-        make_heatmap(ax, pivot_dice_heat, "M3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
+        make_heatmap(ax, pivot_dice_heat, "CM3: Mean Δ Dice per (d, r)", "Mean Δ Dice")
     plt.tight_layout()
     plt.savefig(out_dir / "heatmap_delta_d_r.png", dpi=150)
     plt.close()
@@ -816,8 +818,8 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         # --- 6. ΔPrecision by d, grouped bars per r ---
         pivot_prec_d_r = df.groupby(["d_frac", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
         fig, ax = plt.subplots(figsize=(12, 4))
-        grouped_bar(ax, pivot_prec_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Precision (M3)",
-                    "M3: Δ Precision by shift fraction, split by ghost intensity r")
+        grouped_bar(ax, pivot_prec_d_r, R_COLORS, "d (shift fraction)", "Mean Δ Precision (CM3)",
+                    "CM3: Δ Precision by shift fraction, split by ghost intensity r")
         plt.tight_layout()
         plt.savefig(out_dir / "bar_prec_by_d.png", dpi=150)
         plt.close()
@@ -825,8 +827,8 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         # --- 7. ΔPrecision by r, grouped bars per d ---
         pivot_prec_r_d = df.groupby(["r_val", "d_frac"])["delta_prec_m3"].mean().unstack("d_frac")
         fig, ax = plt.subplots(figsize=(10, 4))
-        grouped_bar(ax, pivot_prec_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Precision (M3)",
-                    "M3: Δ Precision by ghost intensity, split by shift fraction d")
+        grouped_bar(ax, pivot_prec_r_d, D_COLORS, "r (ghost intensity)", "Mean Δ Precision (CM3)",
+                    "CM3: Δ Precision by ghost intensity, split by shift fraction d", col_prefix="d")
         plt.tight_layout()
         plt.savefig(out_dir / "bar_prec_by_r.png", dpi=150)
         plt.close()
@@ -834,8 +836,8 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         # --- 8. ΔPrecision by crop, grouped bars per r ---
         pivot_prec_crop = df.groupby(["crop", "r_val"])["delta_prec_m3"].mean().unstack("r_val")
         fig, ax = plt.subplots(figsize=(9, 4))
-        grouped_bar(ax, pivot_prec_crop, R_COLORS, "Crop region", "Mean Δ Precision (M3)",
-                    "M3: Δ Precision by crop region, split by ghost intensity r")
+        grouped_bar(ax, pivot_prec_crop, R_COLORS, "Crop region", "Mean Δ Precision (CM3)",
+                    "CM3: Δ Precision by crop region, split by ghost intensity r")
         ax.set_xticklabels([c.replace("_to_", "→") for c in pivot_prec_crop.index], fontsize=8)
         plt.tight_layout()
         plt.savefig(out_dir / "bar_prec_by_crop.png", dpi=150)
@@ -850,9 +852,9 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         lim_y = max(abs(mean_per_struct["delta_prec_m3"]).max() * 1.1, 0.01)
         ax.set_xlim(-lim_x, lim_x); ax.set_ylim(-lim_y, lim_y)
         ax.axhline(0, color="gray", lw=0.6); ax.axvline(0, color="gray", lw=0.6)
-        ax.set_xlabel("Mean Δ Dice (M3)", fontsize=10)
-        ax.set_ylabel("Mean Δ Precision (M3)", fontsize=10)
-        ax.set_title("Δ Dice vs Δ Precision per structure (M3)", fontsize=10)
+        ax.set_xlabel("Mean Δ Dice (CM3)", fontsize=10)
+        ax.set_ylabel("Mean Δ Precision (CM3)", fontsize=10)
+        ax.set_title("Δ Dice vs Δ Precision per structure (CM3)", fontsize=10)
         for _, row in mean_per_struct.iterrows():
             if abs(row["delta_m3"]) > 0.005 or abs(row["delta_prec_m3"]) > 0.01:
                 ax.annotate(row["structure"], (row["delta_m3"], row["delta_prec_m3"]),
@@ -919,7 +921,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
                           f"Δ{metric} counts by ghost r", "r (ghost intensity)")
         count_stacked_bar(axes[2], "crop",   delta_col,
                           f"Δ{metric} counts by crop",    "Crop")
-        plt.suptitle(f"M3: improved / neutral / degraded counts ({metric})", y=1.01)
+        plt.suptitle(f"CM3: improved / neutral / degraded counts ({metric})", y=1.01)
         plt.tight_layout()
         plt.savefig(out_dir / f"counts_stacked_{fname_suffix}.png", dpi=150)
         plt.close()
@@ -927,7 +929,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         # diverging counts by d
         fig, ax = plt.subplots(figsize=(12, 4))
         count_diverging_bar(ax, "d_frac", delta_col,
-                            f"M3: net Δ{metric} improvement count by d", "d (shift fraction)")
+                            f"CM3: net Δ{metric} improvement count by d", "d (shift fraction)")
         plt.tight_layout()
         plt.savefig(out_dir / f"counts_diverging_{fname_suffix}_by_d.png", dpi=150)
         plt.close()
@@ -956,7 +958,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
         ax.set_yticks(y)
         ax.set_yticklabels(struct_counts_sorted["structure"].values, fontsize=5)
         ax.set_xlabel("# conditions", fontsize=9)
-        ax.set_title(f"M3: per-structure Δ{title} counts\n(sorted by net Dice)", fontsize=9)
+        ax.set_title(f"CM3: per-structure Δ{title} counts\n(sorted by net Dice)", fontsize=9)
         ax.legend(fontsize=8)
     plt.tight_layout()
     plt.savefig(out_dir / "counts_per_structure.png", dpi=150)
@@ -964,7 +966,7 @@ def make_plots(rows: List[dict], out_dir: Path) -> None:
 
     # --- final Summary + markdown report ---
     n_total = len(df)
-    make_report(df, out_dir, n_total, has_prec, THRESH)
+    make_report(df, out_dir, n_total, has_prec, THRESH, poset_threshold)
     print(f"\nPlots + report saved to {out_dir}/")
 
 
@@ -1009,7 +1011,7 @@ def main():
             w.writeheader()
             w.writerows(rows)
         print(f"\nResults CSV → {csv_path}")
-        make_plots(rows, out_dir)
+        make_plots(rows, out_dir, poset_threshold=args.threshold)
 
 
 if __name__ == "__main__":

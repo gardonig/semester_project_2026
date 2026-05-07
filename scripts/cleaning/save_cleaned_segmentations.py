@@ -43,7 +43,7 @@ def main():
     p.add_argument("--poset",     default="data/structures/totalseg_v2_empirical_poset.json")
     p.add_argument("--com",       default="data/structures/totalseg_v2_com.json")
     p.add_argument("--threshold", type=float, default=0.95)
-    p.add_argument("--method",    choices=["m1","m2","m3","all"], default="all")
+    p.add_argument("--method",    choices=["cm1","cm2","cm3","all"], default="all")
     args = p.parse_args()
 
     pred_dir = Path(args.pred_dir)
@@ -73,12 +73,12 @@ def main():
     print(f"Loaded {len(preds)} non-empty predictions")
     si_ax, si_sign = get_si_info(affine)
 
-    methods_to_run = ["m1", "m2", "m3"] if args.method == "all" else [args.method]
+    methods_to_run = ["cm1", "cm2", "cm3"] if args.method == "all" else [args.method]
     method_fns = {
-        "m1": lambda: method1_unidirectional(preds, poset, si_ax, si_sign, args.threshold),
-        "m2": lambda: method2_symmetric(preds, poset, si_ax, si_sign, args.threshold),
-        "m3": lambda: method3_middle_out_prior(preds, poset, si_ax, si_sign, args.threshold,
-                                               com_lookup, crop_lo, crop_hi, FULL_HEIGHT),
+        "cm1": lambda: method1_unidirectional(preds, poset, si_ax, si_sign, args.threshold),
+        "cm2": lambda: method2_symmetric(preds, poset, si_ax, si_sign, args.threshold),
+        "cm3": lambda: method3_middle_out_prior(preds, poset, si_ax, si_sign, args.threshold,
+                                                com_lookup, crop_lo, crop_hi, FULL_HEIGHT),
     }
 
     for mname in methods_to_run:

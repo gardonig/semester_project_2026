@@ -252,7 +252,7 @@ def simulate_wraparound_from_crop(
     # Wrapped-area map: 0=background, 1=unwrapped body, 2=wrapped overlap
     V = (F.astype(np.int8) + F_hat.astype(np.int8)) * F.astype(np.int8)
 
-    # V3 normalisation: ghost adds directly on top of existing signal,
+    # WM3 normalisation: ghost adds directly on top of existing signal,
     # matching real MRI aliasing physics. r alone controls ghost intensity.
     I_s = I_r.copy()
 
