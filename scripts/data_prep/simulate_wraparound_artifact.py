@@ -244,17 +244,10 @@ def simulate_wraparound_from_crop(
         # Below FOV = full[hi : hi+d]  →  superior end of I = I[0:d]
         _copy_external(hi, hi + d,     dst_lo=0,   dst_hi=d)
 
-    # Eq. 2: overlay masked to body foreground
-    F     = (I > 0)
-    F_hat = (I_hat > 0)
-    I_r   = (I + I_hat) * F
-
-    # Wrapped-area map: 0=background, 1=unwrapped body, 2=wrapped overlap
-    V = (F.astype(np.int8) + F_hat.astype(np.int8)) * F.astype(np.int8)
-
-    # WM3 normalisation: ghost adds directly on top of existing signal,
-    # matching real MRI aliasing physics. r alone controls ghost intensity.
-    I_s = I_r.copy()
+    # Eq. 2: add ghost directly — no body masking.
+    # Real MRI aliasing adds aliased k-space signal everywhere (air, background, tissue).
+    # The ghost appears regardless of body boundaries; r alone controls ghost intensity.
+    I_s = I + I_hat
 
     return I, I_hat, I_s
 

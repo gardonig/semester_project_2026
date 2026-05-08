@@ -16,7 +16,7 @@
 
 DATA_ROOT="${DATA_ROOT:-/scratch/gardonig/wraparound_all}"
 PROJECT="${PROJECT:-/scratch/gardonig/Anatomy_Posets}"
-POSET="${PROJECT}/data/structures/totalseg_v2_empirical_poset.json"
+POSET="${PROJECT}/data/posets/empirical/totalseg_mri_empirical_poset.json"
 COM="${PROJECT}/data/structures/totalseg_v2_com.json"
 PYTHON="${PYTHON:-/scratch/gardonig/totalseg_env/bin/python}"
 

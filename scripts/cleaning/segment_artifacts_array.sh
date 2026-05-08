@@ -38,7 +38,7 @@ fi
 echo "START [task ${SLURM_ARRAY_TASK_ID}] on $(hostname) at $(date)"
 echo "  ${ART}"
 
-"${TOTALSEG}" -i "${ART}" -o "${SEG_DIR}" --fast
+"${TOTALSEG}" -i "${ART}" -o "${SEG_DIR}" --task total_mr --fast
 
 CODE=$?
 echo "END [task ${SLURM_ARRAY_TASK_ID}] exit=${CODE} at $(date)"

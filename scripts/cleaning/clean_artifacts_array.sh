@@ -11,7 +11,7 @@ SEGDIRS_LIST="${SEGDIRS_LIST:-/home/gardonig/segdirs_list.txt}"
 THRESHOLD="${THRESHOLD:-0.95}"
 CLEAN_SUFFIX="${CLEAN_SUFFIX:-cleaned}"
 PROJECT="/scratch/gardonig/Anatomy_Posets"
-POSET="${PROJECT}/data/structures/totalseg_v2_empirical_poset.json"
+POSET="${PROJECT}/data/posets/empirical/totalseg_mri_empirical_poset.json"
 COM="${PROJECT}/data/structures/totalseg_v2_com.json"
 PYTHON="/scratch/gardonig/totalseg_env/bin/python"
 

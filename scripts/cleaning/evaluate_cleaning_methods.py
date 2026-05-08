@@ -19,7 +19,7 @@ Usage
     python scripts/cleaning/evaluate_cleaning_methods.py \
         --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \
         --exp_dir   data/experiments/wraparound \
-        --poset     data/structures/totalseg_v2_empirical_poset.json \
+        --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
         --com       data/structures/totalseg_v2_com.json \
         --subject   s0175 \
         --out_dir   data/experiments/wraparound_cleaning_eval \
@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -96,6 +97,37 @@ def tp_fp_fn(pred: np.ndarray, gt: np.ndarray):
     fp = int(p.sum()) - tp
     fn = int(g.sum()) - tp
     return tp, fp, fn
+
+
+# ---------------------------------------------------------------------------
+# Landmark helpers
+# ---------------------------------------------------------------------------
+
+def get_vertebrae_landmarks(seg_dir: Path, si_ax: int, si_sign: int,
+                            ) -> Tuple[Optional[float], Optional[float]]:
+    """Return (vert_sup_vox, vert_inf_vox) from the combined vertebrae mask in seg_dir.
+
+    vert_sup_vox: global voxel index of the anatomically superior edge of vertebrae (≈ C1 top)
+    vert_inf_vox: global voxel index of the anatomically inferior edge (≈ L5 bottom)
+
+    Returns (None, None) if the file is missing or empty.
+    """
+    vert_path = seg_dir / "vertebrae.nii.gz"
+    if not vert_path.exists():
+        return None, None
+    mask = np.asarray(nib.load(str(vert_path)).dataobj, dtype=bool)
+    if not mask.any():
+        return None, None
+    other = tuple(ax for ax in range(mask.ndim) if ax != si_ax)
+    proj = mask.any(axis=other)
+    idx = np.where(proj)[0]
+    if len(idx) == 0:
+        return None, None
+    lo, hi = int(idx.min()), int(idx.max())
+    if si_sign == +1:
+        return float(hi), float(lo)   # sup=high index, inf=low index
+    else:
+        return float(lo), float(hi)   # sup=low index (small=superior), inf=high index
 
 
 # ---------------------------------------------------------------------------
@@ -239,73 +271,101 @@ def method3_middle_out_prior(
     si_ax: int,
     si_sign: int,
     threshold: float,
-    com_lookup: Dict[str, float],   # name → com_vertical (0–100, 100=most superior)
-    crop_lo: int,
-    crop_hi: int,
-    full_height: int,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, int]]:
+    """Middle-out cleaning with center-preference and constraint-consistency.
+
+    No atlas, no crop coordinates, no external prior.  The only inputs are the
+    predicted masks, the poset, and the image orientation.
+
+    Component selection: when two similarly-sized components compete, prefer the
+    one whose centroid is closest to the image centre (N/2).  Wrap-around ghosts
+    appear at the edges; real anatomy occupies the centre.
+
+    Constraint-consistency guard: for pair (i above j), if i's LCC is entirely
+    below j's LCC, i's LCC is displaced from its expected (superior) position and
+    is therefore the ghost.  All i-components below j's inferior boundary are
+    removed (including the LCC itself — protect_anchor=False).  Any real fragment
+    of i that already sits above j is preserved and becomes the new LCC for
+    subsequent pairs.
+
+    Pair ordering: pairs whose combined observed-LCC midpoint is closest to the
+    image centre are processed first, establishing trustworthy central anchors
+    before cleaning peripheral structures.
+    """
     cleaned = {n: m.copy() for n, m in predictions.items()}
     removed = {n: 0 for n in predictions}
-    N = crop_hi - crop_lo
 
-    def expected_local(name: str) -> Optional[float]:
-        if name not in com_lookup:
-            return None
-        com_v = com_lookup[name]
-        # com_vertical is 0–100, 100 = most superior
-        # For si_sign=+1 ('S'): high index = superior → expected_vox_global ≈ com_v/100 * full_height
-        # For si_sign=-1 ('I'): low index = superior → expected_vox_global ≈ (1-com_v/100) * full_height
-        if si_sign == +1:
-            vox_global = (com_v / 100.0) * full_height
-        else:
-            vox_global = (1.0 - com_v / 100.0) * full_height
-        local = vox_global - crop_lo
-        return local  # may be outside [0, N) → structure not expected in this crop
-
-    # Compute crop centre in atlas-normalized coordinates
-    crop_center_global = crop_lo + N / 2.0
-
-    # Order pairs from most-central pair (both structures near crop centre) to peripheral
-    pairs = _get_pairs(poset, threshold)
-
-    def pair_centrality(pair):
-        ni, nj = pair
-        ei = expected_local(ni)
-        ej = expected_local(nj)
-        ei = ei if ei is not None else -9999
-        ej = ej if ej is not None else -9999
-        return abs((ei + ej) / 2.0 - N / 2.0)
-
-    pairs_sorted = sorted(pairs, key=pair_centrality)
+    # Derive image height from predictions — no external crop knowledge needed
+    N = next(iter(predictions.values())).shape[si_ax]
+    center = N / 2.0
 
     cc_cache: Dict[str, tuple] = {}
+
+    def _lcc_midpoint(name: str) -> float:
+        """Midpoint of LCC extent along si_ax, or image centre if absent."""
+        if name not in cleaned or not cleaned[name].any():
+            return center
+        if name not in cc_cache:
+            cc_cache[name] = get_components(cleaned[name])
+        labeled, _, sizes, lcc = cc_cache[name]
+        if lcc is None:
+            return center
+        ext = axis_extent((labeled == lcc).astype(bool), si_ax)
+        return (ext[0] + ext[1]) / 2.0 if ext is not None else center
+
+    # Order pairs: most central (trustworthy) first
+    pairs = _get_pairs(poset, threshold)
+    pairs_sorted = sorted(
+        pairs,
+        key=lambda p: abs((_lcc_midpoint(p[0]) + _lcc_midpoint(p[1])) / 2.0 - center)
+    )
+
+    def _get_anchor(name: str):
+        """Return (anchor_mask, extent) using the LCC as the candidate anchor.
+
+        The middle-out ordering ensures central structures are already cleaned
+        by the time peripheral ones are processed, making the LCC reliable.
+        The constraint-consistency guard below handles the remaining case where
+        the LCC is actually the ghost (sets anchor=None).
+        """
+        if not cleaned[name].any():
+            return None, None
+        if name not in cc_cache:
+            cc_cache[name] = get_components(cleaned[name])
+        labeled, _, sizes, lcc = cc_cache[name]
+        if lcc is None:
+            return None, None
+        anchor = (labeled == lcc).astype(bool)
+        return anchor, axis_extent(anchor, si_ax)
+
+    def _is_entirely_below(ext_a, ext_b) -> bool:
+        """True if structure a is anatomically entirely below structure b."""
+        if si_sign == +1:
+            return ext_a[1] < ext_b[0]   # a's superior edge < b's inferior edge
+        else:
+            return ext_a[0] > ext_b[1]   # I-axis: a's superior edge > b's inferior edge
 
     for name_i, name_j in pairs_sorted:
         if name_i not in cleaned or name_j not in cleaned:
             continue
 
-        exp_i = expected_local(name_i)
-        exp_j = expected_local(name_j)
+        anchor_i, ext_i = _get_anchor(name_i)
+        anchor_j, ext_j = _get_anchor(name_j)
 
-        def get_anchor(name, exp):
-            if not cleaned[name].any():
-                return None, None
-            if exp is not None and 0 <= exp < N:
-                anchor = select_by_prior(cleaned[name], si_ax, exp)
-            elif exp is not None and not (0 <= exp < N):
-                # Structure expected outside this crop — ghost prediction, skip as anchor
-                return None, None
-            else:
-                if name not in cc_cache:
-                    cc_cache[name] = get_components(cleaned[name])
-                labeled, _, sizes, lcc = cc_cache[name]
-                anchor = (labeled == lcc).astype(bool) if lcc is not None else None
-            if anchor is None:
-                return None, None
-            return anchor, axis_extent(anchor, si_ax)
-
-        anchor_i, ext_i = get_anchor(name_i, exp_i)
-        anchor_j, ext_j = get_anchor(name_j, exp_j)
+        # Constraint-consistency guard:
+        # Pair says i above j, so i's CoM is superior to j's CoM.  If i's LCC is
+        # entirely below j's LCC the constraint is violated and i's LCC is displaced
+        # from its expected (superior) position → i's LCC is the ghost.
+        # Remove all i-components below j's inferior boundary with protect_anchor=False
+        # so the ghost LCC is not spared.  Any real fragment of i that sits above j
+        # is left intact.  Both extents are then cleared to skip the normal steps.
+        if ext_i is not None and ext_j is not None:
+            if _is_entirely_below(ext_i, ext_j):
+                _remove_violated_components(cleaned, removed, name_i, si_ax, si_sign,
+                                            below_limit=ext_j[0], above_limit=None,
+                                            cc_cache=cc_cache, protect_anchor=False)
+                anchor_i, ext_i = None, None   # skip normal steps for this pair
+                anchor_j, ext_j = None, None
 
         if ext_j is not None:
             _remove_violated_components(cleaned, removed, name_i, si_ax, si_sign,
@@ -346,8 +406,13 @@ def _remove_violated_components(
     above_limit: Optional[int],
     cc_cache: Dict[str, tuple],
     anchor_override: Optional[np.ndarray] = None,
+    protect_anchor: bool = True,
 ) -> bool:
-    """Returns True if any voxels were removed (caller should invalidate cc_cache[name])."""
+    """Returns True if any voxels were removed (caller should invalidate cc_cache[name]).
+
+    protect_anchor=False: remove ALL components that violate the limit, including the LCC.
+    Used when the LCC itself is the ghost and must be cleared.
+    """
     mask = cleaned[name]
     if not mask.any():
         return False
@@ -359,7 +424,9 @@ def _remove_violated_components(
     if n == 0:
         return False
 
-    if anchor_override is not None:
+    if not protect_anchor:
+        anchor_label = -1   # protect nothing — ghost LCC included
+    elif anchor_override is not None:
         overlap = np.bincount(labeled[anchor_override].ravel(), minlength=n + 1)
         overlap[0] = 0
         anchor_label = int(overlap.argmax()) if overlap.max() > 0 else lcc_label
@@ -453,10 +520,6 @@ def compute_crop_window(gt_dir: Path, anchors: Tuple[str, str],
 
 def run_evaluation(args, tags: Optional[List[str]] = None) -> List[dict]:
     poset = load_poset_from_json(args.poset)
-    with open(args.com) as f:
-        com_data = json.load(f)
-    com_lookup = {s["name"]: s["com_vertical"] for s in com_data["structures"]}
-
     data_dir = Path(args.data_dir)
     exp_dir  = Path(args.exp_dir)
 
@@ -466,21 +529,21 @@ def run_evaluation(args, tags: Optional[List[str]] = None) -> List[dict]:
         print(f"\n{'#'*70}")
         print(f"  SUBJECT: {subj}")
         print(f"{'#'*70}")
-        rows = _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup, tags)
+        rows = _run_one_subject(args, subj, data_dir, exp_dir, poset, tags=tags)
         all_rows_combined.extend(rows)
     return all_rows_combined
 
 
-def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
+def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                      tags: Optional[List[str]] = None) -> List[dict]:
     gt_dir   = data_dir / subj / "segmentations"
 
-    # Load full MRI for geometry
+    # Load full MRI for geometry and GT crop window computation
     mri_full = nib.load(str(data_dir / subj / "mri.nii.gz"))
     si_ax, si_sign = get_si_info(mri_full.affine)
-    full_height = mri_full.shape[si_ax]
+    full_height = mri_full.shape[si_ax]   # used only for GT crop bounds, not passed to CM3
 
-    # Evaluable structure names (GT ∩ pred ∩ poset)
+    # Evaluable structure names (GT ∩ poset) — used for Dice evaluation
     poset_names  = {s.name for s in poset.structures}
     gt_names     = {p.stem.replace(".nii", "") for p in gt_dir.glob("*.nii.gz")}
     eval_names   = sorted(poset_names & gt_names)
@@ -533,8 +596,9 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
             # Apply cleaning methods — CM1/CM2 commented out for speed; re-enable when needed
             # c1, r1 = method1_unidirectional(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             # c2, r2 = method2_symmetric(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
-            c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold,
-                                              com_lookup, crop_lo, crop_hi, full_height)
+            _t0 = time.perf_counter()
+            c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
+            time_cm3_s = time.perf_counter() - _t0
             # Stubs so row-building code below still works
             c1, r1 = all_preds, {n: 0 for n in all_preds}
             c2, r2 = all_preds, {n: 0 for n in all_preds}
@@ -582,6 +646,7 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset, com_lookup,
                         "fn_before":        fn0,
                         "vox_before":       int(pred0.sum()),
                         "vox_removed_m3":   r3.get(name, 0),
+                        "time_cm3_s":       round(time_cm3_s, 4),
                     })
                 else:
                     fp_removed[2] += r3.get(name, 0)
@@ -979,8 +1044,7 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data_dir",  default="data/datasets/TotalsegmentatorMRI_dataset_v200")
     p.add_argument("--exp_dir",   default="data/experiments/wraparound")
-    p.add_argument("--poset",     default="data/structures/totalseg_v2_empirical_poset.json")
-    p.add_argument("--com",       default="data/structures/totalseg_v2_com.json")
+    p.add_argument("--poset",     default="data/posets/empirical/totalseg_mri_empirical_poset.json")
     p.add_argument("--subject",   default="s0175",
                    help="Single subject (ignored if --subjects is given)")
     p.add_argument("--subjects",  nargs="+", default=None,

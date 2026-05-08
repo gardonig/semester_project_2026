@@ -9,12 +9,13 @@ Clinicians specify relative spatial positions of anatomical structures (superior
 1. [Setup](#setup)
 2. [Project Structure](#project-structure)
 3. [Poset Construction GUI](#poset-construction-gui)
-4. [Empirical Poset](#empirical-poset-from-totalsegmentator-v201)
-5. [Segmentation](#segmentation)
-6. [Wrap-Around Artifact Simulation (WM3)](#wrap-around-artifact-simulation-wm3)
-7. [Cleaning Method CM3](#cleaning-method-cm3)
-8. [Evaluation](#evaluation)
-9. [Technical Reference](#technical-reference)
+4. [Empirical Poset](#empirical-poset)
+5. [Centre-of-Mass Atlases](#centre-of-mass-atlases)
+6. [Segmentation](#segmentation)
+7. [Wrap-Around Artifact Simulation (WM3)](#wrap-around-artifact-simulation-wm3)
+8. [Cleaning Method CM3](#cleaning-method-cm3)
+9. [Evaluation](#evaluation)
+10. [Technical Reference](#technical-reference)
 
 ---
 
@@ -33,28 +34,35 @@ pip install -e .
 ```text
 ├── data/
 │   ├── datasets/                    # Source MRI volumes + GT segmentations — gitignored
-│   ├── experiments/                 # Artifact MRIs, segmentations, cleaned segs — gitignored
+│   ├── experiments/                 # Artifact MRIs, segmentations, eval results — gitignored
 │   │   ├── wraparound_v3/           # V3 artifacts (880 conditions across 10 subjects)
-│   │   ├── wraparound_v3_eval/      # Evaluation results t=0.95 (CSV, plots, report.md)
-│   │   └── wraparound_v3_eval_t100/ # Evaluation results t=1.00 (CSV, plots, report.md)
+│   │   ├── wraparound_v3_eval/      # Evaluation results t=0.95
+│   │   └── wraparound_v3_eval_t100/ # Evaluation results t=1.00
 │   ├── structures/
-│   │   ├── totalseg_v2_empirical_poset.json  # Empirical poset from 1090 subjects
-│   │   └── totalseg_v2_com.json              # Atlas centre-of-mass per structure
-│   └── posets/                      # Saved poset JSON files (clinician/LLM sessions)
+│   │   ├── totalseg_mri_com_landmark.json  # MRI CoM atlas, landmark-normalised (test-set excluded)
+│   │   └── totalseg_v2_com.json            # CT CoM atlas, image-extent normalised (legacy reference)
+│   └── posets/
+│       ├── empirical/
+│       │   └── totalseg_mri_empirical_poset.json  # Empirical poset — 50 structures, 606 MRI subjects
+│       ├── clinician_sessions/      # Human-annotated poset sessions
+│       ├── llm_sessions/            # LLM-generated poset sessions
+│       └── merged_sessions/         # Multi-annotator merged probability posets
 ├── scripts/
 │   ├── cleaning/
-│   │   ├── evaluate_cleaning_methods.py      # Main evaluation script
-│   │   ├── save_cleaned_segmentations.py     # Save cleaned NIfTIs to disk (Slicer)
+│   │   ├── evaluate_cleaning_methods.py      # Main evaluation script (CM3)
+│   │   ├── save_cleaned_segmentations.py     # Save cleaned NIfTIs for 3D Slicer
 │   │   ├── poset_constraint_postprocessing.py
 │   │   ├── segment_artifacts_array.sh        # SLURM array: TotalSegmentator per artifact
 │   │   ├── clean_artifacts_array.sh          # SLURM array: CM3 cleaning per artifact
-│   │   └── evaluate_v3_batch.sh              # SLURM single job: full 10-subject eval
-│   ├── data_prep/
-│   │   ├── simulate_wraparound_artifact.py   # Artifact simulation (WM3)
-│   │   ├── simulate_all_subjects.sh          # Run simulation for all 10 subjects
-│   │   ├── compute_com_from_gt.py
-│   │   └── compute_empirical_poset.py
-│   └── dev/                         # Research and visualisation helpers
+│   │   └── evaluate_v3_batch.sh              # SLURM: full 10-subject evaluation
+│   └── data_prep/
+│       ├── simulate_wraparound_artifact.py   # WM3 artifact simulation
+│       ├── simulate_all_subjects.sh          # Run simulation for all 10 subjects
+│       ├── compute_com_landmark_normalized.py # Compute MRI CoM atlas (landmark-normalised)
+│       ├── compute_empirical_poset.py        # Compute empirical probability poset from GT
+│       ├── rank_mri_subjects.py              # Rank subjects by GT coverage
+│       ├── analyze_mri_coverage.py           # Analyse structure coverage across MRI dataset
+│       └── visualize_mri_wraparound.py       # Visualise artifact coronal slices
 ├── src/anatomy_poset/
 │   ├── core/                        # axis_models, io, matrix_builder, matrix_aggregation
 │   └── gui/                         # PySide6 GUI
@@ -76,18 +84,18 @@ MRI wrap-around (aliasing) occurs when anatomy extends beyond the scanner's fiel
 | Shift fraction | `d` | 0.05 – 0.50 | Fraction of the full volume height that wraps; `d=0.10` means the top 10% of slices appear at the bottom |
 | Ghost intensity | `r` | 0.25 – 1.00 | Scaling factor for the ghost signal; `r=1.0` is full-strength, indistinguishable in intensity from the original |
 
-### WM3 normalization — why no normalization
+### WM3 normalisation — why no normalisation
 
-The paper (Eq. 4) applies a brightness normalization factor `I₂/I₁` to equalize the wrapped and non-wrapped region intensities. This works for **horizontal** wrap (large wrapped area). For **vertical S-I wrap** with small `d`, the wrapped strip is a thin sliver, so `I₂/I₁ ≪ 1` and the ghost appears nearly black — not physically realistic.
+The paper (Eq. 4) applies a brightness normalisation factor `I₂/I₁` to equalise the wrapped and non-wrapped region intensities. This works for **horizontal** wrap (large wrapped area). For **vertical S-I wrap** with small `d`, the wrapped strip is a thin sliver, so `I₂/I₁ ≪ 1` and the ghost appears nearly black — not physically realistic.
 
-**WM3 skips normalization entirely:**
+**WM3 skips normalisation entirely:**
 
 ```python
 # I_r = I + r * ghost_layer, masked to body foreground
 I_s = I_r.copy()   # no scaling — ghost adds directly on top of signal
 ```
 
-In real MRI hardware, aliased signal is added on top of the original signal. `r` alone controls ghost intensity. The wrapped area appears slightly brighter than baseline, which matches real-world scans. WM3 is physically correct and produces visually realistic artifacts across all `(d, r)` combinations.
+In real MRI hardware, aliased signal is added on top of the original signal. `r` alone controls ghost intensity. The wrapped area appears slightly brighter than baseline, which matches real-world scans.
 
 ### Crop windows
 
@@ -135,72 +143,49 @@ ARTIFACT_LIST=~/artifact_list_v3.txt \
 
 ## Cleaning Method CM3
 
-CM3 (**middle-out + spatial prior**) is the cleaning method used throughout this project. It processes poset constraint pairs and removes connected components of a structure that violate the spatial ordering constraints.
+CM3 (**middle-out + constraint-consistency**) processes poset constraint pairs and removes connected components that violate the spatial ordering. It requires only the predicted masks, the poset, and the image orientation — no atlas, no crop coordinates, no external prior.
 
 ### Why not CM1 or CM2?
 
-- **CM1 (unidirectional):** removes non-LCC components of A that sit below B's inferior boundary. Conservative, but only handles one wrap direction and always trusts the largest component even when it is the ghost.
-- **CM2 (symmetric):** also removes non-LCC components of B above A's superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
-- **CM3** fixes both issues with three design decisions described below.
+- **CM1 (unidirectional):** removes non-LCC components of i that sit below j's LCC inferior boundary. Conservative, but only handles one wrap direction and always trusts the LCC even when it is the ghost.
+- **CM2 (symmetric):** also removes non-LCC components of j above i's superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
+- **CM3** fixes both issues with two design decisions:
 
 ### Algorithm
 
-For each constraint pair `(i above j)` from the poset:
+For each constraint pair `(i above j)` from the poset, processed in middle-out order:
 
-1. **Determine the "real" component** of each structure using the atlas spatial prior (see below) rather than blindly trusting the LCC.
-2. **Compute anchor extents:** find the S-I extent of the chosen real component of `j` (inferior limit) and `i` (superior limit).
-3. **Remove violating components:**
-   - Any non-anchor component of `i` that lies entirely *below* `j`'s inferior boundary → removed.
-   - Any non-anchor component of `j` that lies entirely *above* `i`'s superior boundary → removed.
+**Step 1 — Constraint-consistency guard.**
+If i's LCC is entirely below j's LCC, the constraint is already violated. Because the pair ordering encodes the CoM prior (i should be superior to j), i's LCC is displaced from its expected position — i's LCC is the ghost. All i-components below j's inferior boundary are removed with no protection (`protect_anchor=False`), including the ghost LCC itself. Any real fragment of i that already sits above j is preserved and becomes the new anchor for subsequent pairs.
 
-Pairs are processed in **middle-out order**: pairs whose combined atlas-expected position is closest to the crop centre are processed first. Central structures (aorta, spine) are cleaned before peripheral ones (hip, femur), so already-clean central anchors inform the removal of peripheral components.
+**Step 2 — Normal symmetric cleaning.**
+Using the surviving LCC of each structure as anchor:
 
-### Spatial prior — choosing the real component
+- Remove any non-anchor component of i that lies entirely *below* j's inferior boundary.
+- Remove any non-anchor component of j that lies entirely *above* i's superior boundary.
 
-Instead of always picking the LCC, CM3 uses the atlas centre-of-mass (`totalseg_v2_com.json`) to identify which connected component is anatomically expected:
+**Pair ordering — middle-out.** Pairs whose combined observed LCC midpoint is closest to the image centre are processed first. Central structures (aorta, spine) are cleaned before peripheral ones (brain, femur), so already-clean central anchors inform the removal of peripheral components.
 
-```python
-def select_by_prior(mask, si_ax, expected_local, size_dominance=5.0):
-    # If LCC is >5× larger than 2nd largest → trust it unconditionally
-    if top2_sizes[0] >= size_dominance * top2_sizes[1]:
-        return lcc_component
-
-    # Otherwise, pick the component whose centroid is closest to expected_local
-    best = min(components, key=lambda c: |centroid(c) - expected_local|)
-    return best
-```
-
-**Size dominance guard:** when one component is overwhelmingly larger (>5×) it is almost certainly the correct one regardless of position — the prior is only consulted when two similarly-sized components are competing. This prevents the prior from accidentally selecting a tiny noise CC over the large true organ.
-
-### Out-of-crop anchor guard
-
-If the atlas-expected position of a structure falls **outside the current crop's S-I range `[0, N)`**, that structure is skipped as an anchor entirely:
-
-```python
-if exp is not None and not (0 <= exp < N):
-    return None, None   # ghost prediction — skip as anchor
-```
-
-**Why this matters:** a wrap-around artifact may produce a ghost prediction of, say, the femur inside a heart–kidney crop. The femur's atlas position is far outside this crop, so its ghost prediction should not be trusted as an anchor. Without this guard, the ghost femur CC would act as an anchor and incorrectly remove legitimate large components of adjacent structures.
+**Why the pair ordering identifies the ghost.** The empirical poset pair `(i above j)` is derived from the CoM atlas: it fires only when i's anatomical position is consistently superior to j's. If i's LCC appears below j's LCC, i is in the wrong position → i is the ghost. No explicit atlas lookup is needed at inference time.
 
 ### Poset constraint threshold
 
 Only constraints with empirical probability ≥ threshold are enforced:
 
-| Threshold | Constraints used | Behaviour |
-|-----------|-----------------|-----------|
-| `0.95` | ≥95% of subjects show this ordering | Standard — uses most reliable constraints |
-| `1.00` | 100% of subjects — never violated | Conservative — only rock-solid constraints |
+| Threshold | Behaviour |
+| --------- | --------- |
+| `0.95` | ≥95% of subjects show this ordering — uses most reliable constraints |
+| `0.99` | ≥99% — tighter, fewer pairs active |
+| `1.00` | 100% — only constraints never violated in any training subject |
 
 ### Running CM3
 
 ```bash
-# evaluate CM3 on all subjects (runs cleaning in-memory, no pre-saved cleaned dirs needed)
+# evaluate CM3 on all subjects (runs cleaning in-memory)
 python scripts/cleaning/evaluate_cleaning_methods.py \
     --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \
     --exp_dir   data/experiments/wraparound_v3 \
-    --poset     data/structures/totalseg_v2_empirical_poset.json \
-    --com       data/structures/totalseg_v2_com.json \
+    --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
     --subjects  s0175 s0236 s0219 s0187 s0022 s0167 s0186 s0237 s0243 s0250 \
     --threshold 0.95 \
     --out_dir   data/experiments/wraparound_v3_eval
@@ -209,8 +194,7 @@ python scripts/cleaning/evaluate_cleaning_methods.py \
 python scripts/cleaning/save_cleaned_segmentations.py \
     --pred_dir data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/segmentations \
     --out_dir  data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/cleaned \
-    --poset    data/structures/totalseg_v2_empirical_poset.json \
-    --com      data/structures/totalseg_v2_com.json \
+    --poset    data/posets/empirical/totalseg_mri_empirical_poset.json \
     --method   cm3 --threshold 0.95
 ```
 
@@ -220,9 +204,9 @@ python scripts/cleaning/save_cleaned_segmentations.py \
 
 ### Metrics
 
-**Dice** measures overlap between predicted and GT mask. Cleaning only removes false-positive voxels — it never adds voxels — so Dice improves only when FP removal outweighs any small TP loss from aggressive component removal. For artifacts where the ghost overlaps legitimate structure, Dice is relatively insensitive.
+**Dice** measures overlap between predicted and GT mask. Cleaning only removes false-positive voxels — it never adds voxels — so Dice improves only when FP removal outweighs any small TP loss from aggressive component removal.
 
-**Precision** = TP / (TP + FP) is more informative: it directly measures the FP reduction that cleaning achieves. A positive ΔPrecision means fewer false positives after cleaning with no sensitivity to whether TPs were preserved.
+**Precision** = TP / (TP + FP) is more informative: it directly measures the FP reduction that cleaning achieves. A positive ΔPrecision means fewer false positives after cleaning. Because recall = TP / (TP + FN) is invariant to cleaning (CM3 never adds voxels), precision is the metric that most faithfully reflects what CM3 does.
 
 ### Output
 
@@ -232,27 +216,18 @@ Each evaluation run produces in `out_dir/`:
 |------|----------|
 | `results.csv` | Per structure × condition rows: dice/precision before and after CM3 |
 | `report.md` | Full numerical tables by d, r, crop, and per structure |
-| `heatmap_delta_d_r.png` | Side-by-side ΔDice + ΔPrecision heatmap over all (d, r) cells |
+| `heatmap_delta_d_r.png` | ΔDice + ΔPrecision heatmap over all (d, r) cells |
 | `bar_delta_by_d/r.png` | Mean ΔDice grouped bar charts |
 | `bar_prec_by_d/r/crop.png` | Mean ΔPrecision grouped bar charts |
 | `counts_stacked_dice/prec.png` | Improved / neutral / degraded counts |
 | `counts_per_structure.png` | Per-structure diverging count bar, sorted by net Dice |
 | `scatter_dice_vs_prec.png` | ΔDice vs ΔPrecision scatter per structure |
 
-### Current results (WM3 artifacts, 10 subjects)
-
-| Threshold | Conditions | Mean ΔDice | Dice improved | Dice degraded | Mean ΔPrecision | Prec improved |
-|-----------|-----------|-----------|--------------|--------------|----------------|--------------|
-| 0.95 | 880 | ≈0 | ~4–5% | ~1% | +0.002 | ~5% |
-| 1.00 | 880 | ≈0 | ~4–5% | ~1% | +0.002 | ~5% |
-
-Key finding: **precision improves consistently** at r≥0.75 across all d values. Dice is near-zero because cleaning removes mostly FP voxels (increasing precision) without substantially changing the TP/FN balance that Dice measures.
-
 ---
 
-## Empirical Poset from TotalSegmentator v2.01
+## Empirical Poset
 
-`data/structures/totalseg_v2_empirical_poset.json` encodes the empirical spatial ordering of 117 anatomical structures, extracted from **1090 subjects** using `scripts/data_prep/compute_empirical_poset.py`.
+`data/posets/empirical/totalseg_mri_empirical_poset.json` encodes the empirical spatial ordering of **50 anatomical structures** extracted from **606 MRI subjects** (10 test subjects excluded to prevent data leakage) using `scripts/data_prep/compute_empirical_poset.py`.
 
 For every ordered pair (i, j):
 
@@ -261,18 +236,41 @@ P(i strictly above j) = count(subjects where inferior boundary of i > superior b
                         / count(subjects where both i and j are present)
 ```
 
-Values are `null` for pairs co-occurring in fewer than 5 subjects. The matrix is strongly bimodal: 5567 pairs exactly zero, 669 pairs exactly one — very little uncertainty.
+Values are `null` for pairs co-occurring in fewer than 5 subjects. 303 pairs have P ≥ 0.99 on the vertical axis.
 
 ```bash
-python scripts/data_prep/compute_com_from_gt.py \
-    --gt_dir /scratch/gardonig/totalseg_v201 \
-    --out    data/structures/totalseg_v2_com.json
-
+# recompute (excluding test subjects)
 python scripts/data_prep/compute_empirical_poset.py \
-    --gt_dir   /scratch/gardonig/totalseg_v201 \
-    --com_json data/structures/totalseg_v2_com.json \
-    --out      data/structures/totalseg_v2_empirical_poset.json
+    --gt_dir      /scratch/gardonig/TotalsegmentatorMRI_dataset_v200 \
+    --com_json    data/structures/totalseg_mri_com_landmark.json \
+    --out         data/posets/empirical/totalseg_mri_empirical_poset.json \
+    --exclude     s0175 s0236 s0219 s0187 s0022 s0167 s0186 s0237 s0243 s0250
 ```
+
+---
+
+## Centre-of-Mass Atlases
+
+Two CoM atlases are provided. Neither is required by CM3 at inference time, but they are available if a spatial prior is needed for future work.
+
+### `totalseg_mri_com_landmark.json` — MRI, landmark-normalised (primary)
+
+Computed from **TotalsegmentatorMRI v200**, excluding the 10 evaluation subjects. Covers the same **50 structures** that TotalSegmentator MRI predicts.
+
+Each structure's centroid is normalised by the **vertebrae span** present in each subject (inferior edge of bottommost vertebra ≈ L5 to superior edge of topmost ≈ C1 = 0–100). Structures outside the spine (brain, femur) extrapolate naturally beyond this range. This reference frame is anatomically consistent regardless of scan field-of-view.
+
+```bash
+python scripts/data_prep/compute_com_landmark_normalized.py \
+    --mri_dir data/datasets/TotalsegmentatorMRI_dataset_v200 \
+    --exclude s0175 s0236 s0219 s0187 s0022 s0167 s0186 s0237 s0243 s0250 \
+    --out     data/structures/totalseg_mri_com_landmark.json
+```
+
+### `totalseg_v2_com.json` — CT, image-extent normalised (legacy reference)
+
+Computed from the **TotalSegmentator v2.01 CT** benchmark dataset. Covers **117 structures** (the full CT label set), including individual vertebrae levels (C1–L5) not available in the MRI label set.
+
+Each structure's centroid is expressed as a fraction of the **image extent** of the source CT scan. Because different scans have different fields of view, averages across subjects are less anatomically consistent than the landmark-normalised MRI version. Kept as a reference for CT-specific work or if the larger structure set is needed.
 
 ---
 
@@ -332,7 +330,7 @@ Each axis has an `n×n` tri-valued matrix `M`:
 ### Matrix construction algorithm
 
 1. Sort structures by CoM descending.
-2. Initialize: diagonal `-1`, lower triangle `-1`, upper triangle `null`.
+2. Initialise: diagonal `-1`, lower triangle `-1`, upper triangle `null`.
 3. Query pairs `(i, j)` with `j = i + gap`, increasing gap.
 4. After each answer, propagate transitivity, bilateral mirroring for left/right pairs.
 5. Save three matrices + structures list as JSON.

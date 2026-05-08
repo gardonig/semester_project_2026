@@ -16,19 +16,19 @@ Definition of "strictly above" on vertical axis (sign=+1):
 Usage:
     python scripts/data_prep/compute_empirical_poset.py \\
         --gt_dir /scratch/gardonig/totalseg_v201 \\
-        --out    data/structures/totalseg_v2_empirical_poset.json
+        --out    data/posets/empirical/totalseg_mri_empirical_poset.json
 
     # Quick test on 30 subjects
     python scripts/data_prep/compute_empirical_poset.py \\
         --gt_dir /scratch/gardonig/totalseg_v201 \\
-        --out    data/structures/totalseg_v2_empirical_poset.json \\
+        --out    data/posets/empirical/totalseg_mri_empirical_poset.json \\
         --max_subjects 30
 
     # Use pre-computed CoM JSON to fix the structure list and order
     python scripts/data_prep/compute_empirical_poset.py \\
         --gt_dir      /scratch/gardonig/totalseg_v201 \\
         --com_json    data/structures/totalseg_v2_com.json \\
-        --out         data/structures/totalseg_v2_empirical_poset.json
+        --out         data/posets/empirical/totalseg_mri_empirical_poset.json
 """
 
 from __future__ import annotations
@@ -146,12 +146,18 @@ def main() -> None:
     p.add_argument("--min_voxels",   default=10,     type=int)
     p.add_argument("--min_subjects", default=5,      type=int,
                    help="Pairs seen in fewer subjects get null probability")
+    p.add_argument("--exclude",      nargs="*",      default=[],
+                   help="Subject IDs to exclude (e.g. --exclude s0175 s0236)")
     args = p.parse_args()
 
     # ------------------------------------------------------------------ #
     # 1. Discover all structures
     # ------------------------------------------------------------------ #
-    subjects = sorted(d.name for d in args.gt_dir.iterdir() if d.is_dir())
+    exclude_set = set(args.exclude)
+    subjects = sorted(d.name for d in args.gt_dir.iterdir()
+                      if d.is_dir() and d.name not in exclude_set)
+    if exclude_set:
+        print(f"Excluding {len(exclude_set)} subjects: {sorted(exclude_set)}")
     if args.max_subjects:
         subjects = subjects[:args.max_subjects]
     print(f"{len(subjects)} subjects found in {args.gt_dir}")
