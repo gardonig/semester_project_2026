@@ -27,8 +27,8 @@ Generated data — gitignored. Recreate with the scripts in `scripts/data_prep/`
 | Folder | Contents |
 | --- | --- |
 | `wraparound_v3/` | WM3 artifact MRIs and TotalSegmentator predictions (880 conditions × 10 subjects) |
-| `wraparound_v3_eval/` | CM3 evaluation results at threshold = 0.95 |
-| `wraparound_v3_eval_t100/` | CM3 evaluation results at threshold = 1.00 |
+| `wraparound_v3_eval/` | Poset-based cleaning evaluation results at threshold = 0.95 |
+| `wraparound_v3_eval_t100/` | Poset-based cleaning evaluation results at threshold = 1.00 |
 
 ---
 
@@ -49,7 +49,7 @@ Saved poset JSON files encoding anatomical spatial constraints.
 
 ## structures/
 
-Centre-of-mass atlases. Neither is required by CM3 at inference time; both are available if a spatial prior is needed.
+Centre-of-mass atlases. Neither is required by poset-based cleaning at inference time; both are available if a spatial prior is needed.
 
 | File | Modality | Structures | Subjects | Normalisation |
 | --- | --- | --- | --- | --- |

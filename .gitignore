@@ -19,9 +19,9 @@ data/datasets/*
 data/predictions/*
 data/segmentations_Güney/
 
+
 # Experiment artifacts: raw MRIs, TotalSegmentator outputs, cleaned segmentations
-data/experiments/wraparound/
-data/experiments/wraparound_v3/
+data/experiments/
 
 # Eval outputs (large CSVs + PNGs tracked separately per experiment)
 data/experiments/wraparound_cleaning_eval_all10/

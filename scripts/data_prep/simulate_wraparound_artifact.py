@@ -360,7 +360,8 @@ def visualize_coronal_comparison(
 
 def run_totalseg(mri_path: Path, out_dir: Path, totalseg_bin: str) -> bool:
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [totalseg_bin, "-i", str(mri_path), "-o", str(out_dir), "--fast"]
+    cmd = [totalseg_bin, "-i", str(mri_path), "-o", str(out_dir),
+           "--task", "total_mr", "--fast"]
     env = os.environ.copy()
     Path(env.get("TMPDIR", "/tmp")).mkdir(parents=True, exist_ok=True)
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -396,6 +397,7 @@ def run_subject(
     intensities: list[float],
     visualize: bool,
     totalseg_bin: Optional[str],
+    baseline: bool = False,
 ) -> None:
     mri_path = mri_dir / subject / "mri.nii.gz"
     seg_dir  = mri_dir / subject / "segmentations"
@@ -452,6 +454,24 @@ def run_subject(
         print("  No valid crop windows — skipping subject")
         return
 
+    # Clean baseline (d=0, no artifact) — one per crop
+    if baseline:
+        for crop_name, lo, hi in crops_resolved:
+            crop_affine_mat = crop_affine(affine, si_ax, lo)
+            clean_dir = subj_out / crop_name / "d000_r000"
+            if (clean_dir / "mri_artifact.nii.gz").exists():
+                print(f"  [baseline] {crop_name}: already exists, skipping")
+                continue
+            clean_dir.mkdir(parents=True, exist_ok=True)
+            I_clean = data[_si_slice(data.ndim, si_ax, lo, hi)].astype(np.float32)
+            art_path = clean_dir / "mri_artifact.nii.gz"
+            save_nifti(I_clean, crop_affine_mat, orig_dtype, art_path)
+            print(f"  [baseline] {crop_name}: saved clean crop → {art_path}")
+            if totalseg_bin:
+                print(f"    Running TotalSegmentator...")
+                ok = run_totalseg(art_path, clean_dir / "segmentations", totalseg_bin)
+                print(f"    TotalSegmentator {'OK' if ok else 'FAILED'}")
+
     # Sweep conditions
     for crop_name, lo, hi in crops_resolved:
         N = hi - lo
@@ -462,8 +482,12 @@ def run_subject(
             for r in intensities:
                 tag = f"d{int(d_frac * 100):03d}_r{int(r * 100):03d}"
                 cond_dir = subj_out / crop_name / tag
-                cond_dir.mkdir(parents=True, exist_ok=True)
 
+                if (cond_dir / "mri_artifact.nii.gz").exists():
+                    print(f"  [{crop_name}] {tag}: already exists, skipping")
+                    continue
+
+                cond_dir.mkdir(parents=True, exist_ok=True)
                 print(f"\n  [{crop_name}] {tag}: d={d_vox}/{N} slices ({d_frac:.0%}), r={r}")
 
                 I, I_hat, I_s = simulate_wraparound_from_crop(
@@ -518,6 +542,8 @@ def main() -> None:
                    help="Run TotalSegmentator on each artifacted volume")
     p.add_argument("--totalseg",     default="TotalSegmentator",
                    help="Path to TotalSegmentator binary")
+    p.add_argument("--baseline",     action="store_true",
+                   help="Also save a clean crop (d=0, no artifact) as d000_r000/ and optionally segment it")
     args = p.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -538,6 +564,7 @@ def main() -> None:
             subject, args.mri_dir, args.out_dir,
             args.shift_fracs, args.intensities,
             args.visualize, totalseg_bin,
+            baseline=args.baseline,
         )
 
     print("\nAll done.")

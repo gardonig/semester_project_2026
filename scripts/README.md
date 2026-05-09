@@ -9,14 +9,14 @@ Organised by task — pick the folder for the work you want to do.
 | Script | Purpose |
 | --- | --- |
 | `poset_constraint_postprocessing.py` | Core cleaning pipeline: applies poset constraints via CC analysis, outputs cleaned masks |
-| `evaluate_cleaning_methods.py` | Evaluate CM3 on all 10 subjects × WM3 artifact conditions; outputs Dice/Precision CSV, plots, and report |
-| `save_cleaned_segmentations.py` | Run CM3 on a single artifact condition and write cleaned NIfTI files to disk for 3D Slicer |
+| `evaluate_cleaning_methods.py` | Evaluate poset-based cleaning on all 10 subjects × WM3 artifact conditions; outputs Dice/Precision CSV, plots, and report |
+| `save_cleaned_segmentations.py` | Run poset-based cleaning on a single artifact condition and write cleaned NIfTI files to disk for 3D Slicer |
 | `summarize_results.py` | Aggregate per-subject CSVs into per-structure summary tables |
 | `visualize_cleaning.py` | Axial-slice visualisation of before/after cleaning (green=kept, red=removed, blue=GT) |
 | `plot_dice_by_d_r.py` | Plot ΔDice/ΔPrecision heatmaps and bar charts from a results CSV |
 | `segment_artifacts_array.sh` | SLURM array: runs TotalSegmentator on one artifact per task (skips existing) |
-| `clean_artifacts_array.sh` | SLURM array: runs CM3 cleaning per artifact condition |
-| `clean_all_artifacts_batch.sh` | SLURM: runs CM3 cleaning for all subjects in one batch job |
+| `clean_artifacts_array.sh` | SLURM array: runs poset-based cleaning per artifact condition |
+| `clean_all_artifacts_batch.sh` | SLURM: runs poset-based cleaning for all subjects in one batch job |
 | `evaluate_v3_batch.sh` | SLURM: full 10-subject evaluation at a given threshold |
 | `segment_one_subject.sh` | SLURM job: TotalSegmentator for all artifacts of one subject |
 | `submit_segmentation_jobs.sh` | Submits one `segment_one_subject.sh` job per unsegmented subject |
@@ -25,33 +25,33 @@ Organised by task — pick the folder for the work you want to do.
 
 ### Cleaning methods
 
-**CM1 — Unidirectional (baseline)**
+**Preliminary method M1 — Unidirectional (internal development variant, not published)**
 For each constraint pair `(i above j)`, finds the LCC of `j` and removes any non-LCC component of `i` whose S-I extent lies entirely below `j`'s LCC inferior boundary. Handles superior-anatomy ghosts at the inferior crop edge but always trusts the LCC even when it is the ghost.
 
-**CM2 — Symmetric**
-Extends CM1 in both directions: also removes non-LCC components of `j` that sit entirely above `i`'s LCC superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
+**Preliminary method M2 — Symmetric (internal development variant, not published)**
+Extends M1 in both directions: also removes non-LCC components of `j` that sit entirely above `i`'s LCC superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
 
-**CM3 — Middle-out + constraint-consistency (used throughout)**
+**Poset-based cleaning — Middle-out + constraint-consistency (published method)**
 Processes pairs in middle-out order (pairs closest to image centre first). Two key design decisions:
 
 - **Constraint-consistency guard:** for pair `(i above j)`, if i's LCC is entirely below j's LCC, the constraint is already violated. The pair ordering itself encodes the CoM prior — i should be superior — so i's LCC is identified as the ghost. All i-components below j's inferior boundary are removed with `protect_anchor=False` (the ghost LCC is not spared). Any real fragment of i already above j is preserved and becomes the new anchor.
 - **Middle-out ordering:** pairs whose combined observed LCC midpoint is closest to the image centre are processed first. Already-cleaned central anchors propagate outward to inform peripheral structure cleaning.
 
-CM3 requires only the predicted masks, the poset, and the image orientation — no atlas, no crop coordinates.
+Poset-based cleaning requires only the predicted masks, the poset, and the image orientation — no atlas, no crop coordinates.
 
 ---
 
 ### Evaluation metrics — why precision, and why we keep Dice
 
 **Why precision is the primary metric.**
-CM3 is purely subtractive — it can only remove voxels, never add them. Recall = TP / (TP + FN) is therefore mathematically invariant to cleaning. Precision = TP / (TP + FP) is sensitive only to the dimension CM3 actually operates on (FP reduction) and is the metric that most faithfully reflects cleaning quality.
+Poset-based cleaning is purely subtractive — it can only remove voxels, never add them. Recall = TP / (TP + FN) is therefore mathematically invariant to cleaning. Precision = TP / (TP + FP) is sensitive only to the dimension poset-based cleaning actually operates on (FP reduction) and is the metric that most faithfully reflects cleaning quality.
 
 **Why Dice is still reported.**
 Dice is the de-facto standard for segmentation evaluation and enables direct comparison with published TotalSegmentator benchmarks. It also makes trade-offs visible: a method could improve precision while marginally degrading Dice by removing a few TPs, and both facts matter.
 
 ---
 
-### Statistical evaluation of CM3 — full results (threshold = 0.95)
+### Statistical evaluation — full results (threshold = 0.95)
 
 *Dataset: 10 subjects × 3 crops × 40 artifact conditions (10 d × 4 r) = 1 200 (subject, crop, condition) tuples. Wilcoxon signed-rank test on non-zero differences; per-structure p-values corrected with Benjamini–Hochberg FDR (α = 0.05).*
 
@@ -62,7 +62,7 @@ Dice is the de-facto standard for segmentation evaluation and enables direct com
 | Dice | −0.00089 | 1327 / 12673 | 8.7 × 10⁻⁴⁸ | significant **degradation** |
 | Precision | +0.00166 | 1360 / 12673 | 3.1 × 10⁻¹⁰¹ | significant **improvement** |
 
-The opposite directions confirm the metric argument above: CM3 systematically reduces FP at the cost of a very small Dice penalty driven by a handful of structures.
+The opposite directions confirm the metric argument above: poset-based cleaning systematically reduces FP at the cost of a very small Dice penalty driven by a handful of structures.
 
 #### By crop region
 
@@ -90,7 +90,7 @@ Precision improves in all three crops. Dice degrades in the two lower-body crops
 | 1.00 | Dice | −0.00017 | 3.7 × 10⁻¹⁴ | degradation *** |
 | 1.00 | Precision | +0.00350 | 3.0 × 10⁻²⁸ | improvement *** |
 
-At r = 0.25 (weakest ghost) both metrics degrade — the ghost is too faint to distinguish from real anatomy and CM3 over-removes. From r = 0.5 onward precision improves consistently and strongly.
+At r = 0.25 (weakest ghost) both metrics degrade — the ghost is too faint to distinguish from real anatomy and poset-based cleaning over-removes. From r = 0.5 onward precision improves consistently and strongly.
 
 #### By shift fraction (d)
 

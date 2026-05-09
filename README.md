@@ -13,7 +13,7 @@ Clinicians specify relative spatial positions of anatomical structures (superior
 5. [Centre-of-Mass Atlases](#centre-of-mass-atlases)
 6. [Segmentation](#segmentation)
 7. [Wrap-Around Artifact Simulation (WM3)](#wrap-around-artifact-simulation-wm3)
-8. [Cleaning Method CM3](#cleaning-method-cm3)
+8. [Poset-Based Cleaning](#poset-based-cleaning)
 9. [Evaluation](#evaluation)
 10. [Technical Reference](#technical-reference)
 
@@ -49,11 +49,11 @@ pip install -e .
 │       └── merged_sessions/         # Multi-annotator merged probability posets
 ├── scripts/
 │   ├── cleaning/
-│   │   ├── evaluate_cleaning_methods.py      # Main evaluation script (CM3)
+│   │   ├── evaluate_cleaning_methods.py      # Main evaluation script (poset-based cleaning)
 │   │   ├── save_cleaned_segmentations.py     # Save cleaned NIfTIs for 3D Slicer
 │   │   ├── poset_constraint_postprocessing.py
 │   │   ├── segment_artifacts_array.sh        # SLURM array: TotalSegmentator per artifact
-│   │   ├── clean_artifacts_array.sh          # SLURM array: CM3 cleaning per artifact
+│   │   ├── clean_artifacts_array.sh          # SLURM array: poset-based cleaning per artifact
 │   │   └── evaluate_v3_batch.sh              # SLURM: full 10-subject evaluation
 │   └── data_prep/
 │       ├── simulate_wraparound_artifact.py   # WM3 artifact simulation
@@ -141,15 +141,17 @@ ARTIFACT_LIST=~/artifact_list_v3.txt \
 
 ---
 
-## Cleaning Method CM3
+## Poset-Based Cleaning
 
-CM3 (**middle-out + constraint-consistency**) processes poset constraint pairs and removes connected components that violate the spatial ordering. It requires only the predicted masks, the poset, and the image orientation — no atlas, no crop coordinates, no external prior.
+Poset-based cleaning (**middle-out + constraint-consistency**) processes poset constraint pairs and removes connected components that violate the spatial ordering. It requires only the predicted masks, the poset, and the image orientation — no atlas, no crop coordinates, no external prior.
 
-### Why not CM1 or CM2?
+### Design motivation
 
-- **CM1 (unidirectional):** removes non-LCC components of i that sit below j's LCC inferior boundary. Conservative, but only handles one wrap direction and always trusts the LCC even when it is the ghost.
-- **CM2 (symmetric):** also removes non-LCC components of j above i's superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
-- **CM3** fixes both issues with two design decisions:
+Two internal preliminary variants (M1 and M2) were developed iteratively:
+
+- **Preliminary method M1 (unidirectional):** removes non-LCC components of i that sit below j's LCC inferior boundary. Conservative, but only handles one wrap direction and always trusts the LCC even when it is the ghost.
+- **Preliminary method M2 (symmetric):** also removes non-LCC components of j above i's superior boundary. Catches both wrap directions but accumulates errors — an incorrectly cleaned anchor misleads subsequent pairs.
+- **Poset-based cleaning** fixes both issues with two design decisions:
 
 ### Algorithm
 
@@ -178,10 +180,10 @@ Only constraints with empirical probability ≥ threshold are enforced:
 | `0.99` | ≥99% — tighter, fewer pairs active |
 | `1.00` | 100% — only constraints never violated in any training subject |
 
-### Running CM3
+### Running poset-based cleaning
 
 ```bash
-# evaluate CM3 on all subjects (runs cleaning in-memory)
+# evaluate poset-based cleaning on all subjects (runs cleaning in-memory)
 python scripts/cleaning/evaluate_cleaning_methods.py \
     --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \
     --exp_dir   data/experiments/wraparound_v3 \
@@ -195,7 +197,7 @@ python scripts/cleaning/save_cleaned_segmentations.py \
     --pred_dir data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/segmentations \
     --out_dir  data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/cleaned \
     --poset    data/posets/empirical/totalseg_mri_empirical_poset.json \
-    --method   cm3 --threshold 0.95
+    --method   pc --threshold 0.95
 ```
 
 ---
@@ -206,7 +208,7 @@ python scripts/cleaning/save_cleaned_segmentations.py \
 
 **Dice** measures overlap between predicted and GT mask. Cleaning only removes false-positive voxels — it never adds voxels — so Dice improves only when FP removal outweighs any small TP loss from aggressive component removal.
 
-**Precision** = TP / (TP + FP) is more informative: it directly measures the FP reduction that cleaning achieves. A positive ΔPrecision means fewer false positives after cleaning. Because recall = TP / (TP + FN) is invariant to cleaning (CM3 never adds voxels), precision is the metric that most faithfully reflects what CM3 does.
+**Precision** = TP / (TP + FP) is more informative: it directly measures the FP reduction that cleaning achieves. A positive ΔPrecision means fewer false positives after cleaning. Because recall = TP / (TP + FN) is invariant to cleaning (poset-based cleaning never adds voxels), precision is the metric that most faithfully reflects what poset-based cleaning does.
 
 ### Output
 
@@ -214,7 +216,7 @@ Each evaluation run produces in `out_dir/`:
 
 | File | Contents |
 |------|----------|
-| `results.csv` | Per structure × condition rows: dice/precision before and after CM3 |
+| `results.csv` | Per structure × condition rows: dice/precision before and after poset-based cleaning |
 | `report.md` | Full numerical tables by d, r, crop, and per structure |
 | `heatmap_delta_d_r.png` | ΔDice + ΔPrecision heatmap over all (d, r) cells |
 | `bar_delta_by_d/r.png` | Mean ΔDice grouped bar charts |
@@ -251,7 +253,7 @@ python scripts/data_prep/compute_empirical_poset.py \
 
 ## Centre-of-Mass Atlases
 
-Two CoM atlases are provided. Neither is required by CM3 at inference time, but they are available if a spatial prior is needed for future work.
+Two CoM atlases are provided. Neither is required by poset-based cleaning at inference time, but they are available if a spatial prior is needed for future work.
 
 ### `totalseg_mri_com_landmark.json` — MRI, landmark-normalised (primary)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot mean dice (before and after CM3 cleaning) by d_frac and r_val."""
+"""Plot mean dice (before and after poset-based cleaning) by d_frac and r_val."""
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,7 +13,9 @@ OUT = Path(__file__).parents[2] / "data/experiments/wraparound_v3_eval/dice_by_d
 df = pd.read_csv(RESULTS)
 df = df[df["has_gt"] == True]
 
-agg = df.groupby(["d_frac", "r_val"])[["dice_before", "dice_m3"]].mean().reset_index()
+# NOTE: existing CSVs on disk use old column name dice_m3; regenerate with
+# evaluate_cleaning_methods.py to get the new name dice_pc.
+agg = df.groupby(["d_frac", "r_val"])[["dice_before", "dice_pc"]].mean().reset_index()
 
 r_vals = sorted(agg["r_val"].unique())
 colors = plt.cm.viridis(np.linspace(0.2, 0.85, len(r_vals)))
@@ -22,8 +24,8 @@ fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=False)
 
 for ax, col, title in zip(
     axes,
-    ["dice_before", "dice_m3"],
-    ["Before cleaning", "After CM3 cleaning"],
+    ["dice_before", "dice_pc"],
+    ["Before cleaning", "After poset-based cleaning"],
 ):
     for r, color in zip(r_vals, colors):
         sub = agg[agg["r_val"] == r].sort_values("d_frac")

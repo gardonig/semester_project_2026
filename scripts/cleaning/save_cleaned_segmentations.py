@@ -1,6 +1,13 @@
 """
-Run all three cleaning methods on one artifact condition and save the cleaned
-segmentations as NIfTI files for visualization in 3D Slicer.
+Run poset-based cleaning (and optionally the preliminary methods M1/M2) on one
+artifact condition and save the cleaned segmentations as NIfTI files for
+visualization in 3D Slicer.
+
+Methods available via --method:
+  pc  — poset-based cleaning (published method; middle-out + constraint-consistency)
+  m1  — preliminary method M1: unidirectional (internal development variant)
+  m2  — preliminary method M2: symmetric (internal development variant)
+  all — run all three for comparison
 
 Usage
 -----
@@ -8,7 +15,7 @@ Usage
         --pred_dir  data/experiments/wraparound/s0175/heart_to_kidney/d025_r100/segmentations \
         --out_dir   data/experiments/wraparound/s0175/heart_to_kidney/d025_r100/cleaned \
         --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
-        --com       data/structures/totalseg_v2_com.json
+        --method    pc
 """
 
 import argparse, sys
@@ -35,7 +42,8 @@ def main():
     p.add_argument("--out_dir",   required=True, help="Output directory for cleaned segs")
     p.add_argument("--poset",     default="data/posets/empirical/totalseg_mri_empirical_poset.json")
     p.add_argument("--threshold", type=float, default=0.95)
-    p.add_argument("--method",    choices=["cm1","cm2","cm3","all"], default="all")
+    p.add_argument("--method",    choices=["pc","m1","m2","all"], default="pc",
+                   help="'pc' = poset-based cleaning (published); 'm1'/'m2' = preliminary internal variants")
     args = p.parse_args()
 
     pred_dir = Path(args.pred_dir)
@@ -57,11 +65,11 @@ def main():
     print(f"Loaded {len(preds)} non-empty predictions")
     si_ax, si_sign = get_si_info(affine)
 
-    methods_to_run = ["cm1", "cm2", "cm3"] if args.method == "all" else [args.method]
+    methods_to_run = ["pc", "m1", "m2"] if args.method == "all" else [args.method]
     method_fns = {
-        "cm1": lambda: method1_unidirectional(preds, poset, si_ax, si_sign, args.threshold),
-        "cm2": lambda: method2_symmetric(preds, poset, si_ax, si_sign, args.threshold),
-        "cm3": lambda: method3_middle_out_prior(preds, poset, si_ax, si_sign, args.threshold),
+        "pc": lambda: method3_middle_out_prior(preds, poset, si_ax, si_sign, args.threshold),
+        "m1": lambda: method1_unidirectional(preds, poset, si_ax, si_sign, args.threshold),
+        "m2": lambda: method2_symmetric(preds, poset, si_ax, si_sign, args.threshold),
     }
 
     for mname in methods_to_run:
