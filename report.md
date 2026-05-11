@@ -479,6 +479,92 @@ python scripts/cleaning/evaluate_erosion_baseline.py \
     --radius    2
 ```
 
+### Results (10 subjects: s0022, s0167, s0175, s0186, s0187, s0219, s0236, s0237, s0243, s0250)
+
+Evaluated over all 40 artifact conditions (10 d × 4 r). No-artifact reference (d=0, r=0): **Dice = 0.821, Precision = 0.839** (same for all methods — artifact simulation is independent of the cleaning step). "Dice (artifact)" is the mean Dice of the raw prediction with artifact present, before any cleaning. "Δ Dice (cleaning)" and "Δ Prec (cleaning)" show the change due to the cleaning method only (after − before cleaning).
+
+#### Overall
+
+| Method | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) |
+| ------ | --------------- | -------------- | ------------------- | --------------- | -------------- | ------------------- |
+| LCC only | 0.751 | 0.704 | −0.047 ± 0.138 | 0.806 | 0.810 | +0.003 ± 0.065 |
+| Opening r=1 | 0.751 | 0.673 | −0.078 ± 0.158 | 0.806 | 0.849 | +0.043 ± 0.078 |
+| Opening r=2 | 0.751 | 0.649 | −0.102 ± 0.183 | 0.806 | 0.853 | +0.046 ± 0.086 |
+| Poset cleaning (t=1.00) | 0.758 | 0.716 | −0.042 ± 0.180 | 0.810 | 0.820 | +0.011 ± 0.082 |
+
+#### By ghost intensity r
+
+| Method | r | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) |
+| ------ | - | --------------- | -------------- | ------------------- | --------------- | -------------- | ------------------- |
+| LCC only | 0.25 | 0.790 | 0.744 | −0.046 ± 0.137 | 0.825 | 0.828 | +0.003 ± 0.039 |
+| LCC only | 0.50 | 0.765 | 0.718 | −0.047 ± 0.138 | 0.814 | 0.817 | +0.003 ± 0.061 |
+| LCC only | 0.75 | 0.736 | 0.688 | −0.048 ± 0.137 | 0.800 | 0.803 | +0.003 ± 0.073 |
+| LCC only | 1.00 | 0.711 | 0.663 | −0.048 ± 0.139 | 0.785 | 0.789 | +0.004 ± 0.079 |
+| Opening r=1 | 0.25 | 0.790 | 0.713 | −0.077 ± 0.159 | 0.825 | 0.870 | +0.045 ± 0.056 |
+| Opening r=1 | 0.50 | 0.765 | 0.686 | −0.079 ± 0.159 | 0.814 | 0.856 | +0.042 ± 0.076 |
+| Opening r=1 | 0.75 | 0.736 | 0.657 | −0.079 ± 0.158 | 0.800 | 0.840 | +0.041 ± 0.085 |
+| Opening r=1 | 1.00 | 0.711 | 0.636 | −0.075 ± 0.156 | 0.785 | 0.827 | +0.043 ± 0.090 |
+| Opening r=2 | 0.25 | 0.790 | 0.687 | −0.103 ± 0.186 | 0.825 | 0.875 | +0.050 ± 0.066 |
+| Opening r=2 | 0.50 | 0.765 | 0.662 | −0.103 ± 0.184 | 0.814 | 0.861 | +0.048 ± 0.086 |
+| Opening r=2 | 0.75 | 0.736 | 0.634 | −0.102 ± 0.182 | 0.800 | 0.844 | +0.044 ± 0.093 |
+| Opening r=2 | 1.00 | 0.711 | 0.611 | −0.101 ± 0.180 | 0.785 | 0.829 | +0.044 ± 0.095 |
+| Poset (t=1.00) | 0.25 | 0.801 | 0.793 | −0.007 ± 0.075 | 0.831 | 0.833 | +0.002 ± 0.035 |
+| Poset (t=1.00) | 0.50 | 0.774 | 0.738 | −0.036 ± 0.167 | 0.819 | 0.826 | +0.007 ± 0.060 |
+| Poset (t=1.00) | 0.75 | 0.742 | 0.683 | −0.059 ± 0.208 | 0.803 | 0.817 | +0.015 ± 0.096 |
+| Poset (t=1.00) | 1.00 | 0.715 | 0.647 | −0.068 ± 0.226 | 0.787 | 0.805 | +0.019 ± 0.115 |
+
+#### By shift fraction d
+
+| Method | d | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) |
+| ------ | - | --------------- | -------------- | ------------------- | --------------- | -------------- | ------------------- |
+| LCC only | 0.05 | 0.796 | 0.750 | −0.046 ± 0.137 | 0.828 | 0.831 | +0.003 ± 0.034 |
+| LCC only | 0.10 | 0.788 | 0.742 | −0.046 ± 0.137 | 0.828 | 0.831 | +0.004 ± 0.038 |
+| LCC only | 0.15 | 0.775 | 0.730 | −0.046 ± 0.136 | 0.822 | 0.826 | +0.004 ± 0.044 |
+| LCC only | 0.20 | 0.763 | 0.716 | −0.047 ± 0.138 | 0.813 | 0.817 | +0.004 ± 0.059 |
+| LCC only | 0.25 | 0.751 | 0.703 | −0.048 ± 0.140 | 0.805 | 0.807 | +0.002 ± 0.070 |
+| LCC only | 0.30 | 0.742 | 0.696 | −0.046 ± 0.138 | 0.801 | 0.806 | +0.005 ± 0.071 |
+| LCC only | 0.35 | 0.733 | 0.685 | −0.047 ± 0.138 | 0.795 | 0.800 | +0.004 ± 0.076 |
+| LCC only | 0.40 | 0.726 | 0.678 | −0.048 ± 0.137 | 0.792 | 0.796 | +0.004 ± 0.075 |
+| LCC only | 0.45 | 0.717 | 0.669 | −0.048 ± 0.137 | 0.788 | 0.792 | +0.004 ± 0.079 |
+| LCC only | 0.50 | 0.715 | 0.665 | −0.050 ± 0.138 | 0.786 | 0.788 | +0.002 ± 0.080 |
+| Opening r=1 | 0.05 | 0.796 | 0.720 | −0.077 ± 0.159 | 0.828 | 0.874 | +0.045 ± 0.054 |
+| Opening r=1 | 0.10 | 0.788 | 0.711 | −0.077 ± 0.159 | 0.828 | 0.872 | +0.044 ± 0.057 |
+| Opening r=1 | 0.15 | 0.775 | 0.698 | −0.077 ± 0.159 | 0.822 | 0.866 | +0.044 ± 0.062 |
+| Opening r=1 | 0.20 | 0.763 | 0.684 | −0.079 ± 0.161 | 0.813 | 0.855 | +0.042 ± 0.075 |
+| Opening r=1 | 0.25 | 0.751 | 0.672 | −0.079 ± 0.158 | 0.805 | 0.848 | +0.043 ± 0.078 |
+| Opening r=1 | 0.30 | 0.742 | 0.664 | −0.078 ± 0.158 | 0.801 | 0.844 | +0.043 ± 0.082 |
+| Opening r=1 | 0.35 | 0.733 | 0.655 | −0.078 ± 0.159 | 0.795 | 0.837 | +0.042 ± 0.090 |
+| Opening r=1 | 0.40 | 0.726 | 0.648 | −0.078 ± 0.156 | 0.792 | 0.833 | +0.041 ± 0.089 |
+| Opening r=1 | 0.45 | 0.717 | 0.640 | −0.077 ± 0.156 | 0.788 | 0.829 | +0.041 ± 0.089 |
+| Opening r=1 | 0.50 | 0.715 | 0.638 | −0.078 ± 0.156 | 0.786 | 0.827 | +0.040 ± 0.091 |
+| Opening r=2 | 0.05 | 0.796 | 0.696 | −0.101 ± 0.184 | 0.828 | 0.879 | +0.051 ± 0.063 |
+| Opening r=2 | 0.10 | 0.788 | 0.685 | −0.104 ± 0.187 | 0.828 | 0.877 | +0.049 ± 0.068 |
+| Opening r=2 | 0.15 | 0.775 | 0.674 | −0.101 ± 0.182 | 0.822 | 0.871 | +0.049 ± 0.072 |
+| Opening r=2 | 0.20 | 0.763 | 0.660 | −0.103 ± 0.184 | 0.813 | 0.860 | +0.046 ± 0.084 |
+| Opening r=2 | 0.25 | 0.751 | 0.647 | −0.104 ± 0.185 | 0.805 | 0.851 | +0.045 ± 0.090 |
+| Opening r=2 | 0.30 | 0.742 | 0.640 | −0.102 ± 0.184 | 0.801 | 0.848 | +0.047 ± 0.087 |
+| Opening r=2 | 0.35 | 0.733 | 0.631 | −0.102 ± 0.182 | 0.795 | 0.840 | +0.044 ± 0.095 |
+| Opening r=2 | 0.40 | 0.726 | 0.625 | −0.101 ± 0.180 | 0.792 | 0.837 | +0.045 ± 0.094 |
+| Opening r=2 | 0.45 | 0.717 | 0.617 | −0.100 ± 0.180 | 0.788 | 0.833 | +0.045 ± 0.097 |
+| Opening r=2 | 0.50 | 0.715 | 0.612 | −0.103 ± 0.181 | 0.786 | 0.829 | +0.043 ± 0.101 |
+| Poset (t=1.00) | 0.05 | 0.807 | 0.807 | 0.000 ± 0.000 | 0.835 | 0.835 | 0.000 ± 0.000 |
+| Poset (t=1.00) | 0.10 | 0.800 | 0.800 | 0.000 ± 0.000 | 0.834 | 0.834 | 0.000 ± 0.001 |
+| Poset (t=1.00) | 0.15 | 0.788 | 0.782 | −0.005 ± 0.070 | 0.829 | 0.831 | +0.003 ± 0.046 |
+| Poset (t=1.00) | 0.20 | 0.776 | 0.751 | −0.024 ± 0.141 | 0.821 | 0.830 | +0.009 ± 0.062 |
+| Poset (t=1.00) | 0.25 | 0.759 | 0.721 | −0.038 ± 0.177 | 0.810 | 0.821 | +0.012 ± 0.066 |
+| Poset (t=1.00) | 0.30 | 0.746 | 0.686 | −0.060 ± 0.214 | 0.803 | 0.819 | +0.016 ± 0.087 |
+| Poset (t=1.00) | 0.35 | 0.736 | 0.672 | −0.064 ± 0.218 | 0.798 | 0.814 | +0.017 ± 0.092 |
+| Poset (t=1.00) | 0.40 | 0.730 | 0.655 | −0.074 ± 0.231 | 0.794 | 0.810 | +0.017 ± 0.103 |
+| Poset (t=1.00) | 0.45 | 0.721 | 0.641 | −0.080 ± 0.237 | 0.790 | 0.807 | +0.018 ± 0.122 |
+| Poset (t=1.00) | 0.50 | 0.716 | 0.637 | −0.079 ± 0.236 | 0.788 | 0.801 | +0.015 ± 0.126 |
+
+Plots:
+
+- `data/experiments/wraparound_v4_eval/erosion_baseline/dice_by_d_erosion_baseline.png`
+- `data/experiments/wraparound_v4_eval/erosion_baseline/prec_by_d_erosion_baseline.png`
+
+**Key finding:** LCC-only barely changes Precision (+0.003) while consistently degrading Dice (−0.047) — it is the most conservative but also least effective baseline. Opening with r=1 recovers ghost FP more aggressively (Precision +0.043) but at a higher Dice cost (−0.078). Opening with r=2 further maximises Precision gain (+0.046) at severe Dice cost (−0.102). Poset-based cleaning achieves the best Dice/Precision trade-off: smaller Dice loss (−0.042 vs −0.078 for r=1) with comparable Precision recovery (+0.010), because it uses anatomical position to discriminate ghost from real anatomy rather than relying purely on component size.
+
 ### Baseline literature
 
 - Furtado, P.N. (2021). Improving Deep Segmentation of Abdominal Organs MRI by Post-Processing. *BioMedInformatics* 1(3), 88–105. [doi:10.3390/biomedinformatics1030007](https://doi.org/10.3390/biomedinformatics1030007)
@@ -518,83 +604,87 @@ Segmentations produced with `TotalSegmentator --task total_mr --fast` (MRI model
 
 #### Overall — effect of threshold
 
-| Threshold | Mean ΔDice | Imp↑ | Deg↓ | Net Dice | Mean ΔPrec | Prec Imp↑ | Prec Net |
-|-----------|-----------|------|------|----------|-----------|-----------|---------|
-| 1.00 (all constraints) | −0.042 | 388 (1.5%) | 1681 (6.5%) | −1293 | +0.011 | 1940 (7.5%) | +1800 |
-| 0.99 | −0.042 | 413 (1.6%) | 1681 (6.5%) | −1268 | +0.011 | 1992 (7.7%) | +1852 |
-| 0.95 | −0.056 | 440 (1.7%) | 2174 (8.4%) | −1734 | +0.012 | 2458 (9.5%) | +2249 |
+Wilcoxon signed-rank test (two-sided, H₀: median Δ = 0).
+
+No-artifact reference (d=0, r=0): Dice = 0.821, Precision = 0.839.
+
+| Threshold | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| --------- | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| 1.00 | 0.757 | 0.715 | −0.042 ± 0.180 | <1e-100 | 0.808 | 0.819 | +0.011 ± 0.082 | <1e-100 |
+| 0.99 | 0.756 | 0.714 | −0.042 ± 0.180 | <1e-100 | 0.808 | 0.819 | +0.011 ± 0.082 | <1e-100 |
+| 0.95 | 0.756 | 0.700 | −0.056 ± 0.206 | <1e-100 | 0.809 | 0.821 | +0.012 ± 0.094 | <1e-100 |
 
 Higher thresholds (fewer constraints active) produce fewer but more reliable corrections; the net Dice improves across all thresholds but Precision improves consistently at every threshold.
 
 #### By crop region (threshold = 1.00)
 
-| Crop | Mean ΔDice | Imp↑ | Deg↓ | Net | Mean ΔPrec | Prec Net |
-|------|-----------|------|------|-----|-----------|---------|
-| brain → heart | −0.143 | 5 (0.3%) | 293 (19.3%) | −288 | +0.011 | +202 |
-| heart → kidney | −0.087 | 257 (2.5%) | 1388 (13.7%) | −1131 | +0.021 | +1453 |
-| kidney → hip | +0.001 | 180 (1.3%) | 0 (0.0%) | +180 | +0.003 | +193 |
+| Crop | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| ---- | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| brain to heart | 0.704 | 0.561 | −0.143 ± 0.313 | 2.4e-50 | 0.741 | 0.752 | +0.011 ± 0.149 | 4.3e-13 |
+| heart to kidney | 0.738 | 0.652 | −0.086 ± 0.245 | <1e-100 | 0.790 | 0.810 | +0.020 ± 0.102 | <1e-100 |
+| kidney to hip | 0.776 | 0.777 | +0.001 ± 0.019 | 4.1e-32 | 0.830 | 0.833 | +0.003 ± 0.048 | 1.4e-33 |
 
-The `kidney → hip` crop is the only region where Dice also improves on average — there are no degradations at all. The `brain → heart` crop suffers the most (structures like scapula, humerus, and heart are close to the wrap ghost).
+The `kidney to hip` crop is the only region where Dice also improves on average — there are no degradations at all. The `brain to heart` crop suffers the most (structures like scapula, humerus, and heart are close to the wrap ghost).
 
 #### By ghost intensity r (threshold = 1.00)
 
-| r | Mean ΔDice | Imp↑ | Deg↓ | Net | Mean ΔPrec | Prec Net |
-|---|-----------|------|------|-----|-----------|---------|
-| 0.25 | −0.007 | 16 (0.2%) | 66 (1.0%) | −50 | +0.002 | +71 |
-| 0.50 | −0.037 | 52 (0.8%) | 329 (5.1%) | −277 | +0.007 | +342 |
-| 0.75 | −0.059 | 135 (2.1%) | 586 (9.1%) | −451 | +0.015 | +623 |
-| 1.00 | −0.068 | 239 (3.8%) | 700 (11.1%) | −461 | +0.019 | +812 |
+| r | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| - | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| 0.25 | 0.800 | 0.793 | −0.007 ± 0.075 | 7.8e-13 | 0.830 | 0.832 | +0.002 ± 0.035 | 1.9e-09 |
+| 0.50 | 0.773 | 0.737 | −0.036 ± 0.167 | 3.0e-58 | 0.818 | 0.825 | +0.007 ± 0.060 | 1.7e-45 |
+| 0.75 | 0.739 | 0.680 | −0.059 ± 0.208 | 1.6e-97 | 0.800 | 0.815 | +0.015 ± 0.096 | 7.5e-77 |
+| 1.00 | 0.713 | 0.645 | −0.068 ± 0.226 | 3.5e-105 | 0.784 | 0.803 | +0.019 ± 0.115 | 7.2e-98 |
 
 Precision improves at all intensities. Dice degrades more as the ghost grows stronger — heavier ghosts produce larger spurious masks that poset-based cleaning removes, but sometimes removes true anatomy along with them.
 
 #### By shift fraction d (threshold = 1.00)
 
-| d | Mean ΔDice | Imp↑ | Deg↓ | Net | Mean ΔPrec | Prec Net |
-|---|-----------|------|------|-----|-----------|---------|
-| 0.05 | 0.000 | 0 (0.0%) | 0 (0.0%) | 0 | 0.000 | 0 |
-| 0.10 | +0.000 | 2 (0.1%) | 0 (0.0%) | +2 | +0.000 | +2 |
-| 0.15 | −0.005 | 31 (1.2%) | 24 (0.9%) | +7 | +0.003 | +49 |
-| 0.20 | −0.024 | 51 (2.0%) | 93 (3.6%) | −42 | +0.009 | +142 |
-| 0.25 | −0.038 | 64 (2.5%) | 141 (5.4%) | −77 | +0.011 | +196 |
-| 0.30 | −0.060 | 68 (2.6%) | 236 (9.1%) | −168 | +0.016 | +276 |
-| 0.35 | −0.064 | 58 (2.2%) | 254 (9.8%) | −196 | +0.017 | +281 |
-| 0.40 | −0.074 | 57 (2.2%) | 287 (11.2%) | −230 | +0.017 | +295 |
-| 0.45 | −0.080 | 56 (2.2%) | 325 (12.7%) | −269 | +0.018 | +315 |
-| 0.50 | −0.079 | 55 (2.2%) | 321 (12.7%) | −266 | +0.015 | +292 |
+| d | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| - | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| 0.05 | 0.807 | 0.807 | 0.000 ± 0.000 | n.s. | 0.835 | 0.835 | 0.000 ± 0.000 | n.s. |
+| 0.10 | 0.800 | 0.800 | 0.000 ± 0.000 | n.s. | 0.834 | 0.834 | 0.000 ± 0.001 | n.s. |
+| 0.15 | 0.786 | 0.781 | −0.005 ± 0.070 | 3.5e-02 | 0.827 | 0.830 | +0.003 ± 0.046 | 3.8e-07 |
+| 0.20 | 0.773 | 0.749 | −0.024 ± 0.141 | 3.9e-14 | 0.819 | 0.828 | +0.009 ± 0.062 | 1.5e-23 |
+| 0.25 | 0.758 | 0.720 | −0.038 ± 0.177 | 2.2e-21 | 0.808 | 0.820 | +0.012 ± 0.066 | 2.9e-32 |
+| 0.30 | 0.744 | 0.684 | −0.060 ± 0.214 | 1.3e-38 | 0.801 | 0.817 | +0.016 ± 0.087 | 2.2e-40 |
+| 0.35 | 0.735 | 0.671 | −0.064 ± 0.218 | 1.0e-42 | 0.795 | 0.812 | +0.017 ± 0.092 | 4.8e-38 |
+| 0.40 | 0.727 | 0.653 | −0.074 ± 0.231 | 5.1e-50 | 0.791 | 0.808 | +0.017 ± 0.103 | 5.1e-37 |
+| 0.45 | 0.718 | 0.638 | −0.080 ± 0.237 | 1.6e-55 | 0.786 | 0.804 | +0.018 ± 0.122 | 7.7e-35 |
+| 0.50 | 0.713 | 0.634 | −0.079 ± 0.236 | 7.4e-55 | 0.785 | 0.800 | +0.015 ± 0.126 | 5.8e-28 |
 
-At d ≤ 0.10 the ghost is so small it falls entirely outside any crop window — no effect. Effects grow with d and plateau around d = 0.45–0.50.
+At d <= 0.10 the ghost is so small it falls entirely outside any crop window — no effect. Effects grow with d and plateau around d = 0.45–0.50.
 
-#### Per structure (threshold = 1.00, sorted by net Dice)
+#### Per structure (threshold = 1.00, sorted by mean Dice delta)
 
 Top 10 structures by Dice improvement:
 
-| Structure | Mean ΔDice | Imp↑ | Deg↓ | Net | Mean ΔPrec |
-|-----------|-----------|------|------|-----|-----------|
-| small_bowel | +0.005 | 71 (8.9%) | 0 (0.0%) | +71 | +0.013 |
-| iliopsoas_right | +0.007 | 69 (8.6%) | 0 (0.0%) | +69 | +0.011 |
-| iliopsoas_left | +0.005 | 53 (6.6%) | 0 (0.0%) | +53 | +0.008 |
-| femur_right | +0.003 | 33 (10.9%) | 0 (0.0%) | +33 | +0.007 |
-| gluteus_maximus_right | +0.000 | 9 (2.3%) | 0 (0.0%) | +9 | +0.000 |
-| gluteus_maximus_left | +0.000 | 6 (1.6%) | 0 (0.0%) | +6 | +0.000 |
-| hip_left | +0.001 | 5 (1.0%) | 0 (0.0%) | +5 | +0.002 |
-| femur_left | +0.000 | 5 (1.5%) | 0 (0.0%) | +5 | +0.000 |
-| iliac_artery_right | +0.001 | 4 (0.9%) | 0 (0.0%) | +4 | +0.000 |
-| autochthon_right | +0.000 | 3 (0.4%) | 0 (0.0%) | +3 | +0.001 |
+| Structure | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| --------- | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| iliopsoas_right | 0.808 | 0.815 | +0.007 ± 0.035 | 1.1e-14 | 0.789 | 0.800 | +0.011 ± 0.053 | 1.1e-14 |
+| small_bowel | 0.773 | 0.778 | +0.005 ± 0.024 | 1.7e-15 | 0.817 | 0.830 | +0.013 ± 0.054 | 1.7e-15 |
+| iliopsoas_left | 0.797 | 0.802 | +0.005 ± 0.026 | 2.4e-11 | 0.801 | 0.809 | +0.008 ± 0.043 | 2.4e-11 |
+| femur_right | 0.827 | 0.830 | +0.003 ± 0.010 | 1.2e-10 | 0.853 | 0.860 | +0.007 ± 0.026 | 1.2e-10 |
+| hip_left | 0.709 | 0.710 | +0.001 ± 0.015 | 1.6e-02 | 0.725 | 0.727 | +0.002 ± 0.025 | 1.6e-02 |
+| iliac_artery_right | 0.646 | 0.647 | +0.001 ± 0.010 | n.s. | 0.764 | 0.764 | +0.000 ± 0.007 | n.s. |
+| gluteus_medius_left | 0.806 | 0.807 | +0.001 ± 0.013 | n.s. | 0.835 | 0.836 | +0.001 ± 0.019 | n.s. |
+| gluteus_medius_right | 0.829 | 0.829 | +0.000 ± 0.008 | n.s. | 0.865 | 0.866 | +0.001 ± 0.014 | n.s. |
+| autochthon_right | 0.839 | 0.839 | +0.000 ± 0.008 | n.s. | 0.834 | 0.835 | +0.001 ± 0.013 | n.s. |
+| gluteus_maximus_right | 0.663 | 0.663 | +0.000 ± 0.001 | 1.9e-04 | 0.797 | 0.797 | +0.000 ± 0.003 | 1.9e-04 |
 
-Bottom 10 structures by net Dice (worst degradations):
+Bottom 10 structures by mean Dice delta (worst degradations):
 
-| Structure | Mean ΔDice | Imp↑ | Deg↓ | Net | Mean ΔPrec |
-|-----------|-----------|------|------|-----|-----------|
-| stomach | −0.156 | 30 (3.6%) | 171 (20.6%) | −141 | +0.056 |
-| adrenal_gland_left | −0.168 | 0 (0.0%) | 134 (22.8%) | −134 | +0.056 |
-| portal_vein_and_splenic_vein | −0.133 | 7 (1.1%) | 128 (19.3%) | −121 | +0.046 |
-| esophagus | −0.147 | 0 (0.0%) | 114 (26.2%) | −114 | +0.069 |
-| spleen | −0.142 | 24 (3.5%) | 132 (19.4%) | −108 | +0.038 |
-| adrenal_gland_right | −0.145 | 0 (0.0%) | 95 (21.8%) | −95 | +0.038 |
-| lung_left | −0.093 | 0 (0.0%) | 91 (18.2%) | −91 | +0.013 |
-| liver | −0.079 | 22 (2.5%) | 101 (11.7%) | −79 | +0.011 |
-| kidney_right | −0.083 | 0 (0.0%) | 76 (11.1%) | −76 | +0.010 |
-| lung_right | −0.077 | 0 (0.0%) | 74 (14.6%) | −74 | +0.034 |
+| Structure | Dice (artifact) | Dice (cleaned) | Δ Dice (mean ± SD) | p | Prec (artifact) | Prec (cleaned) | Δ Prec (mean ± SD) | p |
+| --------- | --------------- | -------------- | ------------------- | - | --------------- | -------------- | ------------------- | - |
+| adrenal_gland_left | 0.714 | 0.546 | −0.168 ± 0.315 | 9.8e-24 | 0.763 | 0.819 | +0.056 ± 0.113 | 9.8e-24 |
+| stomach | 0.742 | 0.586 | −0.156 ± 0.344 | 4.4e-30 | 0.779 | 0.835 | +0.056 ± 0.175 | 9.8e-35 |
+| esophagus | 0.693 | 0.546 | −0.147 ± 0.274 | 1.9e-20 | 0.799 | 0.868 | +0.069 ± 0.150 | 6.1e-21 |
+| adrenal_gland_right | 0.684 | 0.539 | −0.145 ± 0.289 | 2.6e-17 | 0.801 | 0.839 | +0.038 ± 0.092 | 2.6e-17 |
+| spleen | 0.771 | 0.629 | −0.142 ± 0.330 | 1.2e-23 | 0.797 | 0.835 | +0.038 ± 0.108 | 1.6e-27 |
+| portal_vein_and_splenic_vein | 0.724 | 0.591 | −0.133 ± 0.282 | 7.6e-24 | 0.767 | 0.813 | +0.046 ± 0.114 | 2.2e-24 |
+| heart | 0.820 | 0.699 | −0.121 ± 0.296 | 1.0e-14 | 0.936 | 0.943 | +0.007 ± 0.052 | 1.5e-11 |
+| pancreas | 0.729 | 0.617 | −0.112 ± 0.279 | 1.2e-14 | 0.805 | 0.837 | +0.032 ± 0.085 | 1.2e-15 |
+| humerus_right | 0.570 | 0.460 | −0.110 ± 0.245 | 1.1e-08 | 0.717 | 0.604 | −0.113 ± 0.241 | 2.3e-13 |
+| gallbladder | 0.599 | 0.502 | −0.097 ± 0.250 | 2.4e-13 | 0.785 | 0.800 | +0.015 ± 0.039 | 7.6e-13 |
 
 Nine of the ten worst structures still show **positive ΔPrecision** despite severe Dice loss, which is the key signature of the poset-based cleaning trade-off: ghost FP voxels are correctly identified and removed, but connected components are over-eagerly pruned, also discarding some true anatomy. `humerus_right` is the one exception — it degrades in both Dice (−0.110) and Precision (−0.113), confirming that the poset constraint consistently flags its real voxels as ghost artefacts (failure mode 1: faint ghost misidentified as anchor).
 

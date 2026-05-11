@@ -1,10 +1,12 @@
 """
-Plot absolute Dice and Precision vs d and r, including the no-artifact (d=0) reference.
+Plot Dice and Precision vs artifact shift fraction d, before and after poset-based cleaning.
 
-Produces:
-  no_artifact_dice_prec_by_d.png   — mean Dice and Precision vs d, one line per r, + no-artifact reference
-  no_artifact_dice_by_crop.png     — mean Dice vs d, one panel per crop, + no-artifact reference
-  no_artifact_dice_by_r.png        — mean Dice vs r, one line per d, + no-artifact reference
+Produces exactly two plots:
+  dice_by_d_before_and_after_cleaning.png
+  prec_by_d_before_and_after_cleaning.png
+
+Each plot shows one line per ghost intensity r for both before and after cleaning,
+plus a single shared dot at d=0 for the no-artifact reference (one value, not per-r).
 """
 
 from __future__ import annotations
@@ -14,126 +16,56 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 
-COLORS_R = {0.25: "#4393c3", 0.50: "#92c5de", 0.75: "#f4a582", 1.00: "#d6604d"}
+COLORS_R = {0.25: "#4393c3", 0.50: "#2166ac", 0.75: "#f4a582", 1.00: "#d6604d"}
 NO_ARTIFACT_COLOR = "#1a9641"
-NO_ARTIFACT_LABEL = "no artifact (d=0)"
 
 
-def load(results_with_no_artifact_csv: Path):
-    df = pd.read_csv(results_with_no_artifact_csv)
-    df = df[df.has_gt == True].copy()
-    paired = df.dropna(subset=["dice_no_artifact", "prec_no_artifact"])
-    print(f"  Total rows with GT: {len(df)}")
-    print(f"  Rows with GT + no-artifact reference: {len(paired)}")
-    print(f"  Subjects: {sorted(paired.subject.unique())}")
-    return df, paired
+def load(csv_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    df = df[(df.has_gt == True)].copy()
+    df = df.dropna(subset=["dice_no_artifact", "prec_no_artifact"])
+    print(f"  Rows: {len(df)}  subjects: {sorted(df.subject.unique())}")
+    return df
 
 
-def mean_dice_by_d(paired, r_val):
-    return paired[paired.r_val == r_val].groupby("d_frac")["dice_before"].mean()
+def make_plot(df: pd.DataFrame, before_col: str, after_col: str,
+              no_art_col: str, ylabel: str, out_path: Path) -> None:
+    r_vals = sorted(df.r_val.unique())
+    fig, ax = plt.subplots(figsize=(8, 5))
 
+    # Single shared no-artifact point — one value averaged across all structures/subjects
+    # (computed per structure first to avoid subjects with more structures dominating)
+    no_art_val = (df.groupby(["subject", "crop", "structure"])[no_art_col]
+                  .mean().mean())
 
-def mean_prec_by_d(paired, r_val):
-    return paired[paired.r_val == r_val].groupby("d_frac")["precision_before"].mean()
+    for r in r_vals:
+        sub = df[df.r_val == r]
+        color = COLORS_R[r]
 
+        before = sub.groupby("d_frac")[before_col].mean().sort_index()
+        after  = sub.groupby("d_frac")[after_col].mean().sort_index()
 
-def no_artifact_mean(paired, crop=None):
-    sub = paired if crop is None else paired[paired.crop == crop]
-    per_struct_d = sub.groupby(["crop", "structure"])["dice_no_artifact"].mean()
-    per_struct_p = sub.groupby(["crop", "structure"])["prec_no_artifact"].mean()
-    return per_struct_d.mean(), per_struct_p.mean()
+        d_pct = [d * 100 for d in before.index]
 
+        ax.plot([0] + d_pct, [no_art_val] + list(before.values),
+                color=color, linewidth=1.8, linestyle="-",
+                marker="o", markersize=4, label=f"r={r}, before")
+        ax.plot([0] + d_pct, [no_art_val] + list(after.values),
+                color=color, linewidth=1.8, linestyle="--",
+                marker="s", markersize=4, label=f"r={r}, after cleaning")
 
-def plot_dice_prec_by_d(paired, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    r_vals = sorted(paired.r_val.unique())
+    # Single no-artifact dot (shared origin for all lines)
+    ax.scatter([0], [no_art_val], color=NO_ARTIFACT_COLOR, zorder=6,
+               s=80, marker="*", label=f"no artifact ({no_art_val:.3f})")
 
-    for ax, metric, getter, ylabel in [
-        (axes[0], "Dice",      mean_dice_by_d, "Mean Dice"),
-        (axes[1], "Precision", mean_prec_by_d, "Mean Precision"),
-    ]:
-        na_d, na_p = no_artifact_mean(paired)
-        na_val = na_d if metric == "Dice" else na_p
-        ax.axhline(na_val, color=NO_ARTIFACT_COLOR, linewidth=2,
-                   linestyle="--", label=f"{NO_ARTIFACT_LABEL} ({na_val:.3f})", zorder=5)
-
-        for r in r_vals:
-            series = getter(paired, r)
-            ax.plot(series.index * 100, series.values,
-                    marker="o", color=COLORS_R[r], label=f"r={r}", linewidth=1.8)
-
-        ax.set_xlabel("Shift fraction d (%)")
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"{ylabel} vs d")
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
-        ax.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50])
-
-    fig.suptitle("TotalSegmentator: artifact performance vs no-artifact reference\n"
-                 "(same subject×structure subset, before poset-based cleaning)",
+    ax.set_xlabel("Shift fraction d (%)", fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
+    ax.set_title(f"{ylabel} before and after poset-based cleaning\nvs artifact shift fraction d  (d=0: no artifact)",
                  fontsize=10)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"Saved: {out_path}")
-
-
-def plot_dice_by_crop(paired, out_path):
-    crops = sorted(paired.crop.unique())
-    r_vals = sorted(paired.r_val.unique())
-    fig, axes = plt.subplots(1, len(crops), figsize=(5 * len(crops), 5), sharey=True)
-    if len(crops) == 1:
-        axes = [axes]
-
-    for ax, crop in zip(axes, crops):
-        na_d, _ = no_artifact_mean(paired, crop=crop)
-        ax.axhline(na_d, color=NO_ARTIFACT_COLOR, linewidth=2,
-                   linestyle="--", label=f"{NO_ARTIFACT_LABEL} ({na_d:.3f})", zorder=5)
-
-        for r in r_vals:
-            sub = paired[(paired.crop == crop) & (paired.r_val == r)]
-            series = sub.groupby("d_frac")["dice_before"].mean()
-            ax.plot(series.index * 100, series.values,
-                    marker="o", color=COLORS_R[r], label=f"r={r}", linewidth=1.8)
-
-        ax.set_title(crop.replace("_to_", " → "), fontsize=9)
-        ax.set_xlabel("d (%)")
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=7)
-        ax.set_xticks([5, 10, 20, 30, 40, 50])
-
-    axes[0].set_ylabel("Mean Dice")
-    fig.suptitle("Mean Dice per crop vs d — artifact conditions vs no-artifact reference\n"
-                 "(before poset-based cleaning, paired subject×structure subset)",
-                 fontsize=11)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"Saved: {out_path}")
-
-
-def plot_dice_by_r(paired, out_path):
-    fig, ax = plt.subplots(figsize=(7, 5))
-    d_vals = sorted(paired.d_frac.unique())
-    cmap = matplotlib.colormaps.get_cmap("Oranges").resampled(len(d_vals) + 2)
-
-    na_d, _ = no_artifact_mean(paired)
-    ax.axhline(na_d, color=NO_ARTIFACT_COLOR, linewidth=2,
-               linestyle="--", label=f"{NO_ARTIFACT_LABEL} ({na_d:.3f})", zorder=5)
-
-    for idx, d in enumerate(d_vals):
-        series = paired[paired.d_frac == d].groupby("r_val")["dice_before"].mean()
-        ax.plot(series.index, series.values,
-                marker="o", color=cmap(idx + 2),
-                label=f"d={int(d * 100)}%", linewidth=1.5, alpha=0.85)
-
-    ax.set_xlabel("Ghost intensity r")
-    ax.set_ylabel("Mean Dice")
-    ax.set_title("Mean Dice vs r — artifact conditions vs no-artifact reference\n"
-                 "(all crops, before poset-based cleaning, paired subject×structure subset)")
-    ax.legend(fontsize=7, ncol=2)
+    ax.set_xticks([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50])
+    ax.set_xticklabels(["0", "5", "10", "15", "20", "25", "30", "35", "40", "45", "50"])
+    ax.legend(fontsize=7, ncol=2, loc="lower left")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
@@ -144,21 +76,28 @@ def plot_dice_by_r(paired, out_path):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--eval_dir", required=True, type=Path,
-                   help="Threshold eval dir containing results_with_no_artifact.csv "
-                        "(e.g. wraparound_v4_eval/t100)")
-    p.add_argument("--out_dir",  default=None, type=Path,
+                   help="Threshold eval dir containing results_with_no_artifact.csv")
+    p.add_argument("--out_dir", default=None, type=Path,
                    help="Where to save plots (defaults to --eval_dir)")
     args = p.parse_args()
 
-    merged_csv = args.eval_dir / "results_with_no_artifact.csv"
-    out_dir    = args.out_dir or args.eval_dir
+    csv_path = args.eval_dir / "results_with_no_artifact.csv"
+    out_dir  = args.out_dir or args.eval_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df, paired = load(merged_csv)
+    df = load(csv_path)
 
-    plot_dice_prec_by_d(paired, out_dir / "no_artifact_dice_prec_by_d.png")
-    plot_dice_by_crop(paired,   out_dir / "no_artifact_dice_by_crop.png")
-    plot_dice_by_r(paired,      out_dir / "no_artifact_dice_by_r.png")
+    make_plot(df,
+              before_col="dice_before", after_col="dice_pc",
+              no_art_col="dice_no_artifact",
+              ylabel="Mean Dice",
+              out_path=out_dir / "dice_by_d_before_and_after_cleaning.png")
+
+    make_plot(df,
+              before_col="precision_before", after_col="precision_pc",
+              no_art_col="prec_no_artifact",
+              ylabel="Mean Precision",
+              out_path=out_dir / "prec_by_d_before_and_after_cleaning.png")
 
 
 if __name__ == "__main__":

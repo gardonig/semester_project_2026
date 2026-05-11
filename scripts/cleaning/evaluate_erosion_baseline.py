@@ -376,33 +376,29 @@ def _run_one_subject(
                 print(f"    [skip] {tag}: no predictions")
                 continue
 
-            # Apply erosion-based cleaning to full-volume predictions
+            # Apply erosion-based cleaning
             if method == "opening_lcc":
                 cleaned, vox_removed = method_opening_lcc(all_preds, radius=radius)
             else:  # lcc_only
                 cleaned, vox_removed = method_lcc_only(all_preds)
 
-            # Crop predictions to the anatomical window for metric computation
-            pred_si_ax, _ = get_si_info(affine)
-
             tag_rows = []
             improved = degraded = 0
 
             for name in sorted(all_preds):
-                pred_crop   = crop_gt(all_preds[name],  pred_si_ax, crop_lo, crop_hi)
-                clean_crop  = crop_gt(cleaned[name],    pred_si_ax, crop_lo, crop_hi)
-
+                # Predictions are already at crop-window size — no re-cropping needed.
+                # Shape match against gt_masks confirms the structure is evaluable here.
                 has_gt = (name in gt_masks and
-                          pred_crop.shape == gt_masks[name].shape)
+                          all_preds[name].shape == gt_masks[name].shape)
 
                 if has_gt:
-                    gt = gt_masks[name]
-                    d0  = dice(pred_crop, gt)
-                    d_e = dice(clean_crop, gt)
-                    p0  = precision(pred_crop, gt)
-                    p_e = precision(clean_crop, gt)
-                    rc  = recall(pred_crop, gt)
-                    tp0, fp0, fn0 = tp_fp_fn(pred_crop, gt)
+                    gt  = gt_masks[name]
+                    d0  = dice(all_preds[name], gt)
+                    d_e = dice(cleaned[name], gt)
+                    p0  = precision(all_preds[name], gt)
+                    p_e = precision(cleaned[name], gt)
+                    rc  = recall(all_preds[name], gt)
+                    tp0, fp0, fn0 = tp_fp_fn(all_preds[name], gt)
 
                     delta = d_e - d0
                     if delta >  0.0001: improved += 1
@@ -428,7 +424,7 @@ def _run_one_subject(
                         "tp_before":         tp0,
                         "fp_before":         fp0,
                         "fn_before":         fn0,
-                        "vox_before":        int(pred_crop.sum()),
+                        "vox_before":        int(all_preds[name].sum()),
                         "vox_removed_erosion": vox_removed.get(name, 0),
                     })
 
