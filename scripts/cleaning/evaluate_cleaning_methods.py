@@ -14,6 +14,11 @@ Methods
    atlas position) rather than pure LCC.  Processes constraint pairs ordered from
    most-central structures outward, so already-cleaned central anchors inform the periphery.
 
+4. Center-conflict resolver (experimental CM4): when a hard-order violation is detected
+   for pair (i above j), whichever LCC mask has a voxel closer to the SI mid-plane
+   (horizontal centre line, index N/2) wins; the other structure is treated as violating
+   and is removed for that pair (including its LCC).
+
 Usage
 -----
     python scripts/cleaning/evaluate_cleaning_methods.py \
@@ -381,6 +386,150 @@ def method3_middle_out_prior(
 
 
 # ---------------------------------------------------------------------------
+# Experimental method CM4: center-conflict resolver
+# ---------------------------------------------------------------------------
+
+def _min_abs_si_distance_to_midplane(
+    mask: np.ndarray, si_ax: int, center: float
+) -> float:
+    """Minimum |SI_index − center| over foreground voxels; +inf if mask empty."""
+    if mask is None or not mask.any():
+        return float("inf")
+    coords = np.argwhere(mask)
+    si_vals = coords[:, si_ax].astype(np.float64)
+    return float(np.min(np.abs(si_vals - center)))
+
+
+def method4_center_conflict(
+    predictions: Dict[str, np.ndarray],
+    poset: PosetFromJson,
+    si_ax: int,
+    si_sign: int,
+    threshold: float,
+) -> Tuple[Dict[str, np.ndarray], Dict[str, int]]:
+    """CM4: conflict resolution by proximity of mask voxels to the SI mid-plane.
+
+    For pair (i above j), if i is entirely below j (hard violation), compare each LCC
+    mask's minimum absolute SI distance to the image centre index N/2. The structure with
+    the smaller value dominates; the other is treated as violating and removed
+    (protect_anchor=False for the violating side).
+    """
+    cleaned = {n: m.copy() for n, m in predictions.items()}
+    removed = {n: 0 for n in predictions}
+
+    N = next(iter(predictions.values())).shape[si_ax]
+    center = N / 2.0
+    cc_cache: Dict[str, tuple] = {}
+
+    def _lcc_midpoint(name: str) -> float:
+        if name not in cleaned or not cleaned[name].any():
+            return center
+        if name not in cc_cache:
+            cc_cache[name] = get_components(cleaned[name])
+        labeled, _, _, lcc = cc_cache[name]
+        if lcc is None:
+            return center
+        ext = axis_extent((labeled == lcc).astype(bool), si_ax)
+        return (ext[0] + ext[1]) / 2.0 if ext is not None else center
+
+    def _get_anchor(name: str):
+        if not cleaned[name].any():
+            return None, None
+        if name not in cc_cache:
+            cc_cache[name] = get_components(cleaned[name])
+        labeled, _, _, lcc = cc_cache[name]
+        if lcc is None:
+            return None, None
+        anchor = (labeled == lcc).astype(bool)
+        return anchor, axis_extent(anchor, si_ax)
+
+    def _is_entirely_below(ext_a, ext_b) -> bool:
+        if si_sign == +1:
+            return ext_a[1] < ext_b[0]
+        return ext_a[0] > ext_b[1]
+
+    pairs = _get_pairs(poset, threshold)
+    pairs_sorted = sorted(
+        pairs,
+        key=lambda p: abs((_lcc_midpoint(p[0]) + _lcc_midpoint(p[1])) / 2.0 - center),
+    )
+
+    for name_i, name_j in pairs_sorted:
+        if name_i not in cleaned or name_j not in cleaned:
+            continue
+
+        anchor_i, ext_i = _get_anchor(name_i)
+        anchor_j, ext_j = _get_anchor(name_j)
+
+        # Conflict resolution at hard violation: dominant side = LCC voxels closest to SI mid-plane.
+        if (
+            ext_i is not None
+            and ext_j is not None
+            and anchor_i is not None
+            and anchor_j is not None
+            and _is_entirely_below(ext_i, ext_j)
+        ):
+            dist_i = _min_abs_si_distance_to_midplane(anchor_i, si_ax, center)
+            dist_j = _min_abs_si_distance_to_midplane(anchor_j, si_ax, center)
+
+            if dist_i <= dist_j:
+                # i is more central/plausible -> j is violating.
+                _remove_violated_components(
+                    cleaned,
+                    removed,
+                    name_j,
+                    si_ax,
+                    si_sign,
+                    below_limit=None,
+                    above_limit=ext_i[1],
+                    cc_cache=cc_cache,
+                    protect_anchor=False,
+                )
+            else:
+                # j is more central/plausible -> i is violating.
+                _remove_violated_components(
+                    cleaned,
+                    removed,
+                    name_i,
+                    si_ax,
+                    si_sign,
+                    below_limit=ext_j[0],
+                    above_limit=None,
+                    cc_cache=cc_cache,
+                    protect_anchor=False,
+                )
+            anchor_i, ext_i = None, None
+            anchor_j, ext_j = None, None
+
+        if ext_j is not None:
+            _remove_violated_components(
+                cleaned,
+                removed,
+                name_i,
+                si_ax,
+                si_sign,
+                below_limit=ext_j[0],
+                above_limit=None,
+                cc_cache=cc_cache,
+                anchor_override=anchor_i,
+            )
+        if ext_i is not None:
+            _remove_violated_components(
+                cleaned,
+                removed,
+                name_j,
+                si_ax,
+                si_sign,
+                below_limit=None,
+                above_limit=ext_i[1],
+                cc_cache=cc_cache,
+                anchor_override=anchor_j,
+            )
+
+    return cleaned, removed
+
+
+# ---------------------------------------------------------------------------
 # Shared removal helper
 # ---------------------------------------------------------------------------
 
@@ -594,11 +743,14 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
 
             pred_si_ax, pred_si_sign = get_si_info(affine)
 
-            # Apply poset-based cleaning.
+            # Apply selected cleaning method.
             # Preliminary methods M1/M2 commented out for speed; re-enable if comparing variants.
             # c1, r1 = method1_unidirectional(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             # c2, r2 = method2_symmetric(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
-            c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
+            if args.method == "cm4":
+                c3, r3 = method4_center_conflict(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
+            else:
+                c3, r3 = method3_middle_out_prior(all_preds, poset, pred_si_ax, pred_si_sign, args.threshold)
             # Stubs so row-building code below still works
             c1, r1 = all_preds, {n: 0 for n in all_preds}
             c2, r2 = all_preds, {n: 0 for n in all_preds}
@@ -607,6 +759,7 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
             improved = [0, 0, 0]
             degraded = [0, 0, 0]
             fp_removed = [0, 0, 0]   # false positive voxels removed (no GT in crop)
+            tp_removed = [0, 0, 0]   # true positive voxels removed (with GT)
             tag_rows = []
 
             for name in sorted(all_preds):
@@ -621,6 +774,9 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                     p3 = precision(c3[name], gt)
                     rc = recall(pred0, gt)  # recall unchanged by cleaning
                     tp0, fp0, fn0 = tp_fp_fn(pred0, gt)
+                    tp3, _, _ = tp_fp_fn(c3[name], gt)
+                    tp_removed_pc = max(0, tp0 - tp3)
+                    tp_removed[2] += tp_removed_pc
 
                     delta3 = d3 - d0
                     if delta3 > 0.0001:    improved[2] += 1
@@ -649,17 +805,19 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                         "fn_before":        fn0,
                         "vox_before":       int(pred0.sum()),
                         "vox_removed_pc":   r3.get(name, 0),
+                        "tp_removed_pc":    tp_removed_pc,
                     })
                 else:
                     fp_removed[2] += r3.get(name, 0)
 
             if tag_rows:
-                mb  = np.mean([r["dice_before"] for r in tag_rows])
-                m3  = np.mean([r["dice_pc"]     for r in tag_rows])
+                md  = np.mean([r["delta_pc"]      for r in tag_rows])
+                mp  = np.mean([r["delta_prec_pc"] for r in tag_rows])
                 print(f"    {tag}  n={len(tag_rows):2d} | "
-                      f"before={mb:.4f} | "
-                      f"PC={m3:.4f}({m3-mb:+.4f}) | "
-                      f"improved={improved[2]} degraded={degraded[2]} FP_removed={fp_removed[2]}")
+                      f"ΔDice={md:+.4f} | "
+                      f"ΔPrec={mp:+.4f} | "
+                      f"improved={improved[2]} degraded={degraded[2]} "
+                      f"TP_removed={tp_removed[2]} FP_removed={fp_removed[2]}")
             all_rows.extend(tag_rows)
 
     return all_rows
@@ -1054,6 +1212,8 @@ def main():
     p.add_argument("--out_dir",   default="data/experiments/wraparound_cleaning_eval")
     p.add_argument("--threshold", type=float, default=0.95,
                    help="Min poset probability to count as hard constraint (default: 0.95)")
+    p.add_argument("--method", choices=["cm3", "cm4"], default="cm3",
+                   help="Cleaning method: cm3 (published) or cm4 (experimental center-conflict)")
     p.add_argument("--d_fracs", type=float, nargs="+", default=None,
                    help="Shift fractions to evaluate, e.g. 0.05 0.10 0.25 0.50 (default: all 10)")
     p.add_argument("--r_vals", type=float, nargs="+", default=None,
@@ -1063,7 +1223,10 @@ def main():
     d_fracs = args.d_fracs or DEFAULT_D_FRACS
     r_vals  = args.r_vals  or DEFAULT_R_VALS
     tags    = build_tags(d_fracs, r_vals)
-    print(f"Evaluating {len(tags)} conditions: d={[f'{d:.2f}' for d in d_fracs]}  r={r_vals}")
+    print(
+        f"Evaluating {len(tags)} conditions: d={[f'{d:.2f}' for d in d_fracs]}  "
+        f"r={r_vals}  method={args.method}"
+    )
 
     rows = run_evaluation(args, tags=tags)
 
