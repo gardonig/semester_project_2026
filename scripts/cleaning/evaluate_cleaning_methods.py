@@ -386,7 +386,7 @@ def method3_middle_out_prior(
 
 
 # ---------------------------------------------------------------------------
-# Experimental method CM4: center-conflict resolver
+# Method CM4: center-conflict resolver
 # ---------------------------------------------------------------------------
 
 def _min_abs_si_distance_to_midplane(

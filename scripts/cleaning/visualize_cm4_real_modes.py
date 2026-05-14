@@ -7,15 +7,18 @@ Final segmentations always come from ``evaluate_cleaning_methods.method4_center_
 structure (all poset pairs), not a single logged sub-step — otherwise the figure could
 disagree with CSV ΔDice / ``vox_removed_pc`` when multiple steps touch the same organ.
 
-Case selection (merged CSV):
-  - 3 **good** rows: d = 0.20, highest ΔDice among rows with cleaning applied
-  - 3 **bad** rows: d = 0.50, lowest ΔDice
-  - 1 **extra bad** row: lowest d (≤ 0.15) with negative ΔDice, if available
+Case selection (merged CSV, **one subject** — default ``FOCUS_SUBJECT``; override with ``--subject``):
+  - **Good** rows: ``d_frac ≤ 0.20``, ``ΔDice > 0``, cleaning applied; sorted by **largest**
+    ``vox_removed_pc`` first so larger removed components show clearly (correct TP removal).
+  - **Bad** rows: ``d_frac ≤ 0.45``, ``ΔDice < 0``; same large-voxel bias (large FP / harmful
+    removals visible).
 
-Coronal panels (**square pixels**): segmentation overlays use an **A/P silhouette**
+Coronal panels: overlays use an **A/P silhouette**
 (logical OR along the anterior–posterior axis) projected onto the coronal LR×SI plane, so
 the full footprint of each 3D mask is visible even when the MRI slice only clips part of
-the organ. **Only the MRI grayscale** stays a single coronal slice. **before**: blue
+the organ. **Only the MRI grayscale** stays a single coronal slice. For subject ``s0175``,
+the SI axis (image rows) is drawn **2× taller** on screen than LR for readability; other
+subjects keep square data pixels. **before**: blue
 (removals) + purple (partner); **after**: red (removed TP) + green (removed FP).
 Third “two-structure only” panel removed.
 
@@ -26,22 +29,29 @@ Legend colors:
   - Green — removed false-positive voxels
 
 Outputs:
-  results/cm4_real_cases/cm4_real_good_bad_examples.png
+  results/cm4_real_cases/cm4_real_good_bad_examples.png  (default ``--subject``)
   results/cm4_real_cases/cm4_real_case_details.md
-  results/cm4_real_cases/cm4_real_good_bad_examples_d010_020.png
-  results/cm4_real_cases/cm4_real_case_details_d010_020.md
+  results/cm4_real_cases/cm4_real_good_examples.png
+  results/cm4_real_cases/cm4_real_bad_examples.png
+
+  Other subjects get ``_*`` suffixes, e.g. ``cm4_real_good_bad_examples_s0167.png``.
+
+Usage:
+  python scripts/cleaning/visualize_cm4_real_modes.py --subject s0167
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import argparse
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import gridspec as mgs
 from matplotlib.patches import Patch
 import nibabel as nib
 import numpy as np
@@ -50,6 +60,7 @@ from nibabel.orientations import aff2axcodes
 
 import sys
 import re
+import textwrap
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -76,6 +87,48 @@ POSET_PATH = PROJECT_ROOT / "data" / "posets" / "empirical" / "totalseg_mri_empi
 OUT_DIR = PROJECT_ROOT / "results" / "cm4_real_cases"
 THRESHOLD = 1.00
 
+# ``render_good_bad_grid`` / ``visualize_case_row`` layout & typography
+FIG_TEXT_FONTSIZE = 12
+# Wrap subplot titles (above MRI panels) so long structure/crop/tag lines stay inside the panel.
+FIG_TITLE_WRAP_CHARS = 42
+# Lower scale => smaller coronal image panels (inches per data pixel unit) for balance with text.
+FIG_LAYOUT_SCALE = 0.0178
+FIG_ROW_HEIGHT_FACTOR = 1.88  # per-row vertical extent vs coronal height (was 2.05 at scale 0.021)
+FIG_TEXT_COL_WIDTH_MULT = 2.85  # text column width vs max coronal width (was 2.6)
+# Tiled good-only / bad-only: one case strip per row (``SPLIT_FIG_NCOL=1`` → N rows × 1 column).
+# Each row is still before | after | text. Use ``SPLIT_FIG_NCOL=2`` for two strips per row, etc.
+SPLIT_FIG_NCOL = 1
+SPLIT_FIG_SCALE_MULT = 0.90  # slightly smaller cells than the combined strip figure
+SPLIT_FIG_HSPACE = 0.52  # vertical gap between stacked rows (room for wrapped titles)
+
+# Single-subject publication figure (largest-voxel examples)
+FOCUS_SUBJECT = "s0175"
+# Coronal LR×SI panels: stretch SI (image rows) on screen for the focus subject only.
+FOCUS_SUBJECT_VERTICAL_STRETCH = 2.0
+GOOD_D_MAX = 0.35   # good: d ≤ 35%
+BAD_D_MAX = 0.50    # bad: d ≤ 50%
+MIN_VOX_REMOVED = 200  # skip tiny dust; prefer large components
+# At most this many good / bad rows per figure; fewer are used if the CSV has fewer candidates.
+MAX_CASES_PER_SIDE = 6
+
+
+def _good_rank_indices(n_show: int) -> Tuple[int, ...]:
+    """Ranks into largest-voxel good list: skip the 2nd candidate (index 1) when ``n_show`` ≥ 2."""
+    if n_show <= 0:
+        return ()
+    if n_show == 1:
+        return (0,)
+    return (0,) + tuple(range(2, n_show + 1))
+
+
+def _bad_rank_indices(n_show: int) -> Tuple[int, ...]:
+    """Ranks into largest-voxel bad list: skip the top candidate (index 0) when ``n_show`` ≥ 2."""
+    if n_show <= 0:
+        return ()
+    if n_show == 1:
+        return (0,)
+    return tuple(range(1, n_show + 1))
+
 
 def strip_cm4_from_figure_text(s: str) -> str:
     """Strip ``CM4`` / ``cm4`` tokens from strings drawn on publication figures."""
@@ -84,6 +137,25 @@ def strip_cm4_from_figure_text(s: str) -> str:
     t = re.sub(r"(?i)cm4[_-]?", "", s)
     t = re.sub(r"(?i)\bcm4\b", "", t)
     return re.sub(r"\s+", " ", t).strip(" \t-_")
+
+
+def _wrap_panel_title(text: str, width: int = FIG_TITLE_WRAP_CHARS) -> str:
+    """Insert newlines so title lines stay within ~``width`` characters (MRI axes are narrow)."""
+    blocks: List[str] = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            blocks.append("")
+            continue
+        blocks.extend(
+            textwrap.wrap(
+                line,
+                width=max(16, width),
+                break_long_words=True,
+                break_on_hyphens=True,
+            )
+        )
+    return "\n".join(blocks)
 
 
 CROP_ANCHORS = {
@@ -146,6 +218,40 @@ def _pick_sorted(
     used_struct = set()
     used_key = set()
     for r in rows.sort_values("delta_pc", ascending=ascending).itertuples(index=False):
+        sname = str(r.structure)
+        key = (str(r.subject), str(r.crop), str(r.tag))
+        if sname in used_struct:
+            continue
+        if key in used_key and len(out) < max(1, n - 1):
+            continue
+        out.append(_to_case(r))
+        used_struct.add(sname)
+        used_key.add(key)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _pick_sorted_largest_voxels(
+    rows: pd.DataFrame,
+    n: int,
+    *,
+    ascending_delta: bool,
+    require_positive_delta: Optional[bool] = None,
+) -> List[CaseRow]:
+    """Like ``_pick_sorted`` but prefer rows with **largest** ``vox_removed_pc`` first."""
+    if require_positive_delta is True:
+        rows = rows[rows["delta_pc"] > 0]
+    elif require_positive_delta is False:
+        rows = rows[rows["delta_pc"] < 0]
+    rows_sorted = rows.sort_values(
+        ["vox_removed_pc", "delta_pc"],
+        ascending=[False, ascending_delta],
+    )
+    out: List[CaseRow] = []
+    used_struct = set()
+    used_key = set()
+    for r in rows_sorted.itertuples(index=False):
         sname = str(r.structure)
         key = (str(r.subject), str(r.crop), str(r.tag))
         if sname in used_struct:
@@ -259,6 +365,96 @@ def pick_cases_d_band(
         order.append((c, False, f"good {d_lo:g}≤d≤{d_hi:g}"))
     for c in bads:
         order.append((c, True, f"bad {d_lo:g}≤d≤{d_hi:g}"))
+    return order
+
+
+def pick_cases_s0175_focus(
+    df: pd.DataFrame,
+    *,
+    subject: str = FOCUS_SUBJECT,
+    max_good: int = MAX_CASES_PER_SIDE,
+    max_bad: int = MAX_CASES_PER_SIDE,
+    good_d_max: float = GOOD_D_MAX,
+    bad_d_max: float = BAD_D_MAX,
+    min_vox_removed: int = MIN_VOX_REMOVED,
+) -> List[Tuple[CaseRow, bool, str]]:
+    """Single-subject panel: good (d≤good_d_max, ΔDice>0) vs bad (d≤bad_d_max, ΔDice<0).
+
+    ``subject`` defaults to ``FOCUS_SUBJECT``. Rows are ranked by **largest** ``vox_removed_pc``.
+    Up to ``max_good`` / ``max_bad`` cases are kept (fewer if not enough rows in the CSV).
+    When at least two candidates exist on a side, the 2nd good (by rank) and 1st bad are
+    skipped in favour of the next-ranked rows, provided the oversampled list is long enough;
+    otherwise the top ``n`` rows are used.
+    """
+    base = df[
+        _has_gt_series(df)
+        & (df["subject"].astype(str) == subject)
+        & (df["vox_removed_pc"] > 0)
+    ].copy()
+
+    good_pool = base[(base["d_frac"] <= good_d_max + 1e-9) & (base["delta_pc"] > 0)].copy()
+    bad_pool = base[(base["d_frac"] <= bad_d_max + 1e-9) & (base["delta_pc"] < 0)].copy()
+
+    def _prefer_min_vox(pool: pd.DataFrame, n: int, label: str) -> pd.DataFrame:
+        sub = pool[pool["vox_removed_pc"] >= min_vox_removed]
+        if len(sub) >= n:
+            return sub
+        if len(pool) < n:
+            raise RuntimeError(
+                f"{subject} {label}: need {n} row(s); found {len(pool)} "
+                f"(base rows with vox_removed_pc>0: {len(base)})"
+            )
+        print(
+            f"WARNING: {subject} {label}: only {len(sub)} row(s) with "
+            f"vox_removed_pc>={min_vox_removed}; using full pool.",
+            flush=True,
+        )
+        return pool
+
+    fetch_cap = max(max_good, max_bad) + 2
+
+    goods_all = _pick_sorted_largest_voxels(
+        _prefer_min_vox(good_pool, fetch_cap, "good"),
+        fetch_cap,
+        ascending_delta=False,
+        require_positive_delta=True,
+    )
+    bads_all = _pick_sorted_largest_voxels(
+        _prefer_min_vox(bad_pool, fetch_cap, "bad"),
+        fetch_cap,
+        ascending_delta=True,
+        require_positive_delta=False,
+    )
+
+    n_good = min(max_good, len(goods_all))
+    n_bad = min(max_bad, len(bads_all))
+
+    if n_good < 1:
+        raise RuntimeError(
+            f"{subject} good: need ≥1 row at d≤{good_d_max:g}, ΔDice>0, vox_removed_pc>0; found 0"
+        )
+    if n_bad < 1:
+        raise RuntimeError(
+            f"{subject} bad: need ≥1 row at d≤{bad_d_max:g}, ΔDice<0, vox_removed_pc>0; found 0"
+        )
+
+    good_ranks = _good_rank_indices(n_good)
+    if n_good >= 2 and len(goods_all) > max(good_ranks):
+        goods = [goods_all[i] for i in good_ranks]
+    else:
+        goods = goods_all[:n_good]
+
+    bad_ranks = _bad_rank_indices(n_bad)
+    if n_bad >= 2 and len(bads_all) > max(bad_ranks):
+        bads = [bads_all[i] for i in bad_ranks]
+    else:
+        bads = bads_all[:n_bad]
+
+    order: List[Tuple[CaseRow, bool, str]] = []
+    for c in goods:
+        order.append((c, False, f"good d≤{good_d_max:g} ({subject})"))
+    for c in bads:
+        order.append((c, True, f"bad d≤{bad_d_max:g} ({subject})"))
     return order
 
 
@@ -662,10 +858,18 @@ def overlay_after_tp_fp(mri2d: np.ndarray, tp_red_2d: np.ndarray, fp_green_2d: n
     return np.clip(rgb, 0, 1)
 
 
-def _set_pixel_true_aspect(ax, shape2d: Tuple[int, int]) -> None:
-    h, w = shape2d
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_box_aspect(h / max(w, 1))
+def _set_pixel_true_aspect(
+    ax, shape2d: Tuple[int, int], *, vertical_stretch: float = 1.0
+) -> None:
+    """Square data pixels by default; ``vertical_stretch>1`` elongates the SI axis on screen."""
+    h, w = int(shape2d[0]), int(shape2d[1])
+    if abs(vertical_stretch - 1.0) < 1e-9:
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_box_aspect(h / max(w, 1))
+        return
+    # Numeric aspect: displayed y-unit is ``vertical_stretch`` × longer than x-unit (matplotlib).
+    ax.set_aspect(vertical_stretch, adjustable="box")
+    ax.set_box_aspect((h / max(w, 1)) * vertical_stretch)
 
 
 def imshow_native(ax, img: np.ndarray) -> None:
@@ -675,7 +879,15 @@ def imshow_native(ax, img: np.ndarray) -> None:
     ax.set_ylim(-0.5, h - 0.5)
 
 
-def visualize_case_row(ax_row, case: CaseRow, poset: PosetFromJson, prefer_tp_event: bool, label: str):
+def visualize_case_row(
+    ax_row,
+    case: CaseRow,
+    poset: PosetFromJson,
+    prefer_tp_event: bool,
+    label: str,
+    *,
+    stretch_subject: Optional[str] = None,
+):
     """ax_row: length 3 — before | after (TP/FP removal) | text."""
     pred_dir = EXP_DIR / case.subject / case.crop / case.tag / "segmentations"
     preds, affine = load_predictions(pred_dir)
@@ -732,21 +944,37 @@ def visualize_case_row(ax_row, case: CaseRow, poset: PosetFromJson, prefer_tp_ev
     p0 = precision(before, gt)
     p1 = precision(after, gt)
 
-    imshow_native(ax_row[0], overlay_before_cm4(mri2d_cor, rem2d_cor, partner2d_cor))
-    ax_row[0].set_title(
-        f"{label}: before cleaning (coronal)\n{case.structure} | {case.subject} {case.crop} {case.tag}  "
-        f"MRI AP={sl_cor} · masks = A/P silhouette",
-        fontsize=10,
+    ss = stretch_subject if stretch_subject is not None else FOCUS_SUBJECT
+    y_stretch = (
+        FOCUS_SUBJECT_VERTICAL_STRETCH
+        if case.subject == ss
+        else 1.0
     )
-    _set_pixel_true_aspect(ax_row[0], rem2d_cor.shape)
+
+    imshow_native(ax_row[0], overlay_before_cm4(mri2d_cor, rem2d_cor, partner2d_cor))
+    t_before = _wrap_panel_title(
+        f"{label}: before cleaning (coronal)\n"
+        f"{case.structure} | {case.subject} {case.crop} {case.tag}  "
+        f"MRI AP={sl_cor} · masks = A/P silhouette"
+    )
+    ax_row[0].set_title(
+        t_before,
+        fontsize=FIG_TEXT_FONTSIZE,
+        pad=8 + 3 * max(0, t_before.count("\n")),
+    )
+    _set_pixel_true_aspect(ax_row[0], rem2d_cor.shape, vertical_stretch=y_stretch)
     ax_row[0].axis("off")
 
     imshow_native(ax_row[1], overlay_after_tp_fp(mri2d_cor, tp_removed_2d, fp_removed_2d))
-    ax_row[1].set_title(
-        "after cleaning — removals\nred/green = TP/FP (A/P silhouette on this slice)",
-        fontsize=10,
+    t_after = _wrap_panel_title(
+        "after cleaning — removals\nred/green = TP/FP (A/P silhouette on this slice)"
     )
-    _set_pixel_true_aspect(ax_row[1], rem2d_cor.shape)
+    ax_row[1].set_title(
+        t_after,
+        fontsize=FIG_TEXT_FONTSIZE,
+        pad=8 + 3 * max(0, t_after.count("\n")),
+    )
+    _set_pixel_true_aspect(ax_row[1], rem2d_cor.shape, vertical_stretch=y_stretch)
     ax_row[1].axis("off")
 
     ax_row[2].axis("off")
@@ -769,63 +997,50 @@ def visualize_case_row(ax_row, case: CaseRow, poset: PosetFromJson, prefer_tp_ev
     )
     ax_row[2].text(
         0.02,
-        1.0,
+        0.5,
         txt,
-        va="top",
+        va="center",
         ha="left",
-        fontsize=11,
+        fontsize=FIG_TEXT_FONTSIZE,
         family="monospace",
-        linespacing=1.35,
+        linespacing=1.3,
+        transform=ax_row[2].transAxes,
+        clip_on=False,
     )
 
     return {"coronal_shape": rem2d_cor.shape, "event": evt}
 
 
-def render_good_bad_grid(
+def _dry_run_case_shapes(
     cases_order: List[Tuple[CaseRow, bool, str]],
     poset: PosetFromJson,
     *,
-    out_png: Path,
-    out_md: Path,
-    suptitle: str,
-    md_header: str,
-) -> None:
-    """Build the 3-column × N-row figure and companion markdown."""
-    # Geometry dry-run
-    fig_tmp, axes_tmp = plt.subplots(len(cases_order), 3, figsize=(12.5, 3.1 * len(cases_order)))
-    if len(cases_order) == 1:
+    stretch_subject: Optional[str] = None,
+) -> List[Tuple[int, int]]:
+    """Run ``visualize_case_row`` once per case to get coronal (H, W) for layout sizing."""
+    n = len(cases_order)
+    if n == 0:
+        return []
+    fig_tmp, axes_tmp = plt.subplots(n, 3, figsize=(12.5, 3.1 * n))
+    if n == 1:
         axes_tmp = np.array([axes_tmp])
-    shapes = []
+    shapes: List[Tuple[int, int]] = []
     for i, (case, pref_tp, lab) in enumerate(cases_order):
-        s = visualize_case_row(axes_tmp[i], case, poset, prefer_tp_event=pref_tp, label=lab)
+        s = visualize_case_row(
+            axes_tmp[i],
+            case,
+            poset,
+            prefer_tp_event=pref_tp,
+            label=lab,
+            stretch_subject=stretch_subject,
+        )
         shapes.append(s["coronal_shape"])
     plt.close(fig_tmp)
+    return shapes
 
-    cor_h = max(s[0] for s in shapes)
-    cor_w = max(s[1] for s in shapes)
-    width_ratios = [cor_w, cor_w, int(2.6 * cor_w)]
-    scale = 0.021
-    fig_w = scale * sum(width_ratios)
-    fig_h = scale * (2.05 * cor_h) * len(cases_order)
 
-    fig, axes = plt.subplots(
-        len(cases_order),
-        3,
-        figsize=(fig_w, fig_h),
-        gridspec_kw={"width_ratios": width_ratios},
-    )
-    if len(cases_order) == 1:
-        axes = np.array([axes])
-
-    md_lines = [md_header, ""]
-    for i, (case, pref_tp, lab) in enumerate(cases_order):
-        summ = visualize_case_row(axes[i], case, poset, prefer_tp_event=pref_tp, label=lab)
-        md_lines.append(
-            f"- **{lab}**: `{case.subject}` / `{case.crop}` / `{case.tag}` / `{case.structure}` "
-            f"ΔDice={case.delta_pc:+.5f} — `{strip_cm4_from_figure_text(str(summ['event']['step_kind']))}`"
-        )
-
-    legend_handles = [
+def _overlay_legend_patches() -> List[Patch]:
+    return [
         Patch(
             facecolor=(0.25, 0.55, 0.98),
             edgecolor="navy",
@@ -851,17 +1066,62 @@ def render_good_bad_grid(
             label="Green: removed FP (A/P silhouette)",
         ),
     ]
+
+
+def render_good_bad_grid(
+    cases_order: List[Tuple[CaseRow, bool, str]],
+    poset: PosetFromJson,
+    *,
+    out_png: Path,
+    out_md: Path,
+    suptitle: str,
+    md_header: str,
+    stretch_subject: Optional[str] = None,
+) -> None:
+    """Build the 3-column × N-row figure and companion markdown."""
+    shapes = _dry_run_case_shapes(cases_order, poset, stretch_subject=stretch_subject)
+    cor_h = max(s[0] for s in shapes)
+    cor_w = max(s[1] for s in shapes)
+    width_ratios = [cor_w, cor_w, int(FIG_TEXT_COL_WIDTH_MULT * cor_w)]
+    scale = FIG_LAYOUT_SCALE
+    fig_w = scale * sum(width_ratios)
+    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * len(cases_order)
+
+    fig, axes = plt.subplots(
+        len(cases_order),
+        3,
+        figsize=(fig_w, fig_h),
+        gridspec_kw={"width_ratios": width_ratios},
+    )
+    if len(cases_order) == 1:
+        axes = np.array([axes])
+
+    md_lines = [md_header, ""]
+    for i, (case, pref_tp, lab) in enumerate(cases_order):
+        summ = visualize_case_row(
+            axes[i],
+            case,
+            poset,
+            prefer_tp_event=pref_tp,
+            label=lab,
+            stretch_subject=stretch_subject,
+        )
+        md_lines.append(
+            f"- **{lab}**: `{case.subject}` / `{case.crop}` / `{case.tag}` / `{case.structure}` "
+            f"ΔDice={case.delta_pc:+.5f} — `{strip_cm4_from_figure_text(str(summ['event']['step_kind']))}`"
+        )
+
+    fig.suptitle(suptitle, fontsize=FIG_TEXT_FONTSIZE, y=1.095)
     fig.legend(
-        handles=legend_handles,
-        loc="lower center",
+        handles=_overlay_legend_patches(),
+        loc="upper center",
         ncol=2,
-        fontsize=10,
+        fontsize=FIG_TEXT_FONTSIZE,
         frameon=True,
-        bbox_to_anchor=(0.5, -0.015),
+        bbox_to_anchor=(0.5, 1.005),
     )
 
-    fig.suptitle(suptitle, fontsize=12, y=1.01)
-    fig.tight_layout(rect=[0, 0.07, 1, 0.97])
+    fig.tight_layout(rect=[0, 0.07, 1, 0.85])
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
@@ -872,35 +1132,134 @@ def render_good_bad_grid(
     print(f"Saved: {out_md}")
 
 
+def render_case_tile_grid(
+    cases_order: List[Tuple[CaseRow, bool, str]],
+    poset: PosetFromJson,
+    *,
+    out_png: Path,
+    suptitle: str,
+    outer_ncol: int = SPLIT_FIG_NCOL,
+    stretch_subject: Optional[str] = None,
+) -> None:
+    """Good-only or bad-only figure: ``outer_ncol`` case strips per row (each strip = 3 axes)."""
+    n = len(cases_order)
+    if n == 0:
+        print(f"Skipping empty tile grid: {out_png.name}", flush=True)
+        return
+
+    shapes = _dry_run_case_shapes(cases_order, poset, stretch_subject=stretch_subject)
+    cor_h = max(s[0] for s in shapes)
+    cor_w = max(s[1] for s in shapes)
+    width_ratios_inner = [cor_w, cor_w, int(FIG_TEXT_COL_WIDTH_MULT * cor_w)]
+    cell_w = sum(width_ratios_inner)
+    ncol = max(1, outer_ncol)
+    nrow = (n + ncol - 1) // ncol
+    scale = FIG_LAYOUT_SCALE * SPLIT_FIG_SCALE_MULT
+    fig_w = scale * cell_w * ncol
+    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * nrow
+
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    outer = mgs.GridSpec(nrow, ncol, figure=fig, hspace=SPLIT_FIG_HSPACE, wspace=0.12)
+    for i in range(n):
+        r, c = divmod(i, ncol)
+        inner = mgs.GridSpecFromSubplotSpec(
+            1,
+            3,
+            subplot_spec=outer[r, c],
+            wspace=0.04,
+            width_ratios=width_ratios_inner,
+        )
+        ax0 = fig.add_subplot(inner[0, 0])
+        ax1 = fig.add_subplot(inner[0, 1])
+        ax2 = fig.add_subplot(inner[0, 2])
+        case, pref_tp, lab = cases_order[i]
+        visualize_case_row(
+            np.array([ax0, ax1, ax2]),
+            case,
+            poset,
+            prefer_tp_event=pref_tp,
+            label=lab,
+            stretch_subject=stretch_subject,
+        )
+
+    fig.suptitle(suptitle, fontsize=FIG_TEXT_FONTSIZE, y=1.095)
+    fig.legend(
+        handles=_overlay_legend_patches(),
+        loc="upper center",
+        ncol=2,
+        fontsize=FIG_TEXT_FONTSIZE,
+        frameon=True,
+        bbox_to_anchor=(0.5, 1.005),
+    )
+    fig.tight_layout(rect=[0, 0.05, 1, 0.85])
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {out_png}")
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="CM4 real-case publication figures from wraparound_v4_eval_cm4 CSVs.",
+    )
+    parser.add_argument(
+        "--subject",
+        default=FOCUS_SUBJECT,
+        help=f"Totalsegmentator subject id (default: {FOCUS_SUBJECT})",
+    )
+    args = parser.parse_args()
+    subject = str(args.subject).strip()
+    if not subject:
+        raise SystemExit("error: --subject must be non-empty")
+
+    tag = "" if subject == FOCUS_SUBJECT else f"_{subject}"
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     df = load_merged_or_partials(EVAL_CM4_T100)
     poset = load_poset_from_json(str(POSET_PATH))
 
-    strat = pick_cases_stratified(df)
+    cases = pick_cases_s0175_focus(df, subject=subject)
     render_good_bad_grid(
-        strat,
+        cases,
         poset,
-        out_png=OUT_DIR / "cm4_real_good_bad_examples.png",
-        out_md=OUT_DIR / "cm4_real_case_details.md",
+        out_png=OUT_DIR / f"cm4_real_good_bad_examples{tag}.png",
+        out_md=OUT_DIR / f"cm4_real_case_details{tag}.md",
         suptitle=(
-            "Cases — good at d=0.20, bad at d=0.50 (+ optional bad at low d)\n"
-            "MRI = one coronal slice · colored masks = A/P projection (full LR×SI footprint)"
+            f"Subject {subject} — good: d≤{GOOD_D_MAX:g}, ΔDice>0 (largest removals first); "
+            f"bad: d≤{BAD_D_MAX:g}, ΔDice<0\n"
+            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
         ),
-        md_header="# Real cleaning cases (coronal, square pixels)",
+        md_header=(
+            f"# Real cleaning cases — subject {subject} (coronal; SI axis 2× screen stretch)\n\n"
+            f"Good rows: d≤{GOOD_D_MAX:g}, ΔDice>0, ranked by largest `vox_removed_pc` "
+            f"(up to {MAX_CASES_PER_SIDE}; editorial rank skip when enough candidates). "
+            f"Bad rows: d≤{BAD_D_MAX:g}, ΔDice<0, same rule (up to {MAX_CASES_PER_SIDE})."
+        ),
+        stretch_subject=subject,
     )
 
-    band = pick_cases_d_band(df, d_lo=0.10, d_hi=0.20, n_good=3, n_bad=3)
-    render_good_bad_grid(
-        band,
+    goods = [t for t in cases if not t[1]]
+    bads = [t for t in cases if t[1]]
+    render_case_tile_grid(
+        goods,
         poset,
-        out_png=OUT_DIR / "cm4_real_good_bad_examples_d010_020.png",
-        out_md=OUT_DIR / "cm4_real_case_details_d010_020.md",
+        out_png=OUT_DIR / f"cm4_real_good_examples{tag}.png",
         suptitle=(
-            "Cases — good and bad with 0.10 ≤ d ≤ 0.20\n"
-            "MRI = one coronal slice · colored masks = A/P projection (full LR×SI footprint)"
+            f"Subject {subject} — good cases only (d≤{GOOD_D_MAX:g}, ΔDice>0)\n"
+            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
         ),
-        md_header="# Real cleaning cases — d in [0.10, 0.20] (coronal, square pixels)",
+        stretch_subject=subject,
+    )
+    render_case_tile_grid(
+        bads,
+        poset,
+        out_png=OUT_DIR / f"cm4_real_bad_examples{tag}.png",
+        suptitle=(
+            f"Subject {subject} — bad cases only (d≤{BAD_D_MAX:g}, ΔDice<0)\n"
+            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
+        ),
+        stretch_subject=subject,
     )
 
 

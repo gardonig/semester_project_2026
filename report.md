@@ -347,6 +347,10 @@ For each predicted mask, `get_components()` uses `scipy.ndimage.label` to find a
 
 Pairs are processed in order of how central the predicted LCCs are to the image. For each pair `(i, j)`, compute the midpoint between i's LCC centre and j's LCC centre along S-I, then sort ascending by distance of that midpoint from the image centre `N/2`. Pairs involving aorta, spine, and other central structures are processed first; pairs involving brain, femur, and other peripheral structures are processed later. This means the peripheral cleanings are informed by already-trustworthy central anchors.
 
+**Why middle-out, and when to deviate.** Wrap-around aliasing can originate from either end of the FOV: anatomy above the superior boundary folds into the inferior portion of the image, and anatomy below the inferior boundary folds into the superior portion. Because the ghost source is unknown a priori, the safest assumption is that neither edge is clean, making the image centre the most trustworthy starting point. Middle-out ordering encodes this assumption directly.
+
+If the acquisition geometry is known, however, a more targeted ordering can improve results. For example, if the FOV covers the full head but is truncated at the neck — so wrap-around can only enter from the inferior edge — the superior structures are guaranteed artifact-free. In that case, sorting pairs from superior to inferior (clean-end first) establishes anchors from the definitively ghost-free region and propagates cleaning downward toward the contaminated edge, reducing the risk of cascade errors near the clean boundary. Conversely, if only the inferior boundary is clean (e.g. a pelvis-to-head scan truncated at the top), pairs should be sorted inferior-to-superior. Middle-out is the correct default when FOV truncation side is unknown.
+
 ### Constraint-consistency guard
 
 For pair `(i above j)` — meaning the empirical poset says i is consistently superior to j — the guard checks whether i's LCC is **entirely below** j's LCC:
@@ -688,6 +692,34 @@ Bottom 10 structures by mean Dice delta (worst degradations):
 
 Nine of the ten worst structures still show **positive ΔPrecision** despite severe Dice loss, which is the key signature of the poset-based cleaning trade-off: ghost FP voxels are correctly identified and removed, but connected components are over-eagerly pruned, also discarding some true anatomy. `humerus_right` is the one exception — it degrades in both Dice (−0.110) and Precision (−0.113), confirming that the poset constraint consistently flags its real voxels as ghost artefacts (failure mode 1: faint ghost misidentified as anchor).
 
+#### Qualitative examples
+
+Each panel below shows one structure from one artifact condition. Left column: coronal slice before cleaning (target GT in blue, AP-projection silhouette in purple). Right column: after cleaning, with removed FP in red and removed TP in green. Captions quote the cleaning step type, ΔDice, and ΔPrecision.
+
+**Subject s0175 — successful cases**
+
+Ghost components in the pelvic and lower-abdominal region are unambiguously displaced relative to their expected S-I positions. The poset constraint fires on the out-of-place component and removes it cleanly, raising both Dice and Precision together. Representative cases: `gluteus_medius_left` (ΔDice = +0.369, `conflict_prefer_i_remove_j`), `humerus_left` (ΔDice = +0.385, `conflict_prefer_j_remove_i`), `iliopsoas_right` (ΔDice = +0.149).
+
+![s0175 good cases](results/cm4_real_cases/cm4_real_good_examples_s0175.png)
+
+**Subject s0175 — failure cases**
+
+In the `heart_to_kidney` crop, ghost anatomy from the brain/skull region wraps into the upper-abdominal boundary. Several structures that legitimately straddle this boundary — `humerus_right` (ΔDice = −0.327, `normal_remove_i_below_j`), `kidney_right` (ΔDice = −0.191), `inferior_vena_cava` (ΔDice = −0.220) — are mis-identified as ghost and partially removed. In these cases the removed component is predominantly TP, so Precision also falls.
+
+![s0175 bad cases](results/cm4_real_cases/cm4_real_bad_examples_s0175.png)
+
+**Subject s0167 — successful cases**
+
+`s0167` shows strong ghost signals in the pelvic and abdominal crops. The constraint correctly identifies out-of-place blobs for `small_bowel` (ΔDice = +0.223, d=0.35, r=1.0), `liver` (ΔDice = +0.087, `kidney_to_hip`), `iliopsoas_left` (ΔDice = +0.163), `spleen` (ΔDice = +0.114), and `iliopsoas_right` (ΔDice = +0.085). All removed components are pure FP ghost.
+
+![s0167 good cases](results/cm4_real_cases/cm4_real_good_examples_s0167.png)
+
+**Subject s0167 — failure cases**
+
+At larger shifts (d ≥ 0.35) in the `heart_to_kidney` crop, real abdominal structures are wrongly flagged. The `conflict_prefer_j_remove_i` step removes the anchor component of the real structure rather than the ghost. Worst cases: `kidney_right` (ΔDice = −0.892), `duodenum` (ΔDice = −0.858), `gallbladder` (ΔDice = −0.841), `portal_vein_and_splenic_vein` (ΔDice = −0.538). All four show Precision loss alongside Dice loss, confirming predominantly TP removal.
+
+![s0167 bad cases](results/cm4_real_cases/cm4_real_bad_examples_s0167.png)
+
 ---
 
 ## 12. Discussion
@@ -721,45 +753,46 @@ Stronger ghosts produce larger, more conspicuous FP detections → more cleaning
 
 **Summary.** Poset-based cleaning produces a consistent asymmetry — precision up, Dice down — wherever it fires on ghost anatomy mixed with real anatomy. It produces symmetric improvement (Dice and Precision both up) only when the removed component is pure ghost (kidney → hip regime). It produces symmetric degradation (both down) only when the method inverts anchor and ghost, removing predominantly real anatomy (humerus_right in brain → heart). The kidney → hip success case demonstrates that the method works as designed when geographic separability between real and ghost anatomy is high; the brain → heart failure case demonstrates the limits when ghost and real overlap in the same anatomical region.
 
-### Advantages of poset-based cleaning over no cleaning
+### Advantages of poset-based cleaning over LCC-only and morphological opening
 
-Poset-based cleaning is **purely subtractive**: it can only remove voxels, never add them. Every benefit flows from this guarantee.
+The two anatomy-agnostic baselines — LCC-only (keep largest component per structure) and morphological opening (erode, keep LCC, dilate) — provide a useful lower bound. The overall comparison on the 10-subject evaluation set is:
 
-| Advantage | Explanation |
-| --- | --- |
-| Recall is mathematically invariant | FN count never changes; cleaning cannot make recall worse under any circumstances |
-| Precision improves when ghost is correctly identified | Removes FP voxels with no TP cost |
-| No ground truth at inference | Poset is precomputed offline; deployment needs only predicted masks and the poset JSON |
-| No atlas at inference | The CoM atlas is used offline to derive pair ordering; it is not consulted at runtime |
-| Works on any crop extent | Middle-out ordering is derived from the predictions themselves, not from external crop coordinates |
-| Generalises to any segmenter | Requires only binary masks and a poset; not tied to TotalSegmentator |
-| Negligible latency | Sub-second on CPU; does not affect clinical pipeline throughput |
+| Method | ΔDice (mean) | ΔPrec (mean) |
+| --- | --- | --- |
+| LCC only | −0.047 | +0.003 |
+| Opening r=1 | −0.078 | +0.043 |
+| Opening r=2 | −0.102 | +0.046 |
+| Poset cleaning (t=1.00) | −0.001 | +0.010 |
+
+**Ghost-size invariance.** LCC-only discards any component that is not the largest — it has no concept of which component is the ghost. When the ghost is larger than the real structure (common at d ≥ 0.25 or r ≥ 0.75), LCC-only retains the ghost and removes real anatomy, worsening both Dice and Precision simultaneously. Opening applies the same size-based logic after morphological filtering and fails in the same regime. Poset-based cleaning uses spatial-ordering constraints that are independent of component size: a component is removed because it is in the wrong anatomical location, not because it is small.
+
+**No degradation on clean data.** At d = 0.05 — a near-absent artifact — LCC-only degrades Dice by −0.046 and Opening by −0.077 to −0.101 because they always run and always discard minority components. Poset-based cleaning fires zero actions at d = 0.05 (and d = 0.10), leaving the prediction unchanged. This makes it safe to apply unconditionally in a pipeline without needing a ghost-detection gate.
+
+**Recall invariance.** Poset-based cleaning is purely subtractive — it can only remove voxels, never add them — so FN count never changes and recall is mathematically invariant. LCC-only and Opening also remove voxels, but they apply indiscriminately to every structure in every scan regardless of whether a ghost is present, accumulating recall loss across clean predictions.
+
+**No morphological parameter.** Opening requires selecting a structuring element radius. r = 1 is too conservative at large d; r = 2 increases Precision gain marginally (+0.046 vs +0.043) but doubles the Dice loss (−0.102 vs −0.078) and erodes thin real structures such as the esophagus and portal vein. Poset-based cleaning has no free morphological parameter; its only tunable is the poset constraint threshold, which is set once from the training population.
+
+**Smaller Dice loss at moderate-to-large shift.** At d ≥ 0.25 — where ghosts are large enough to be clinically relevant — poset-based cleaning ΔDice reaches −0.038 to −0.080 (scaling with r), while LCC-only is consistently −0.046 to −0.050 and Opening is −0.077 to −0.103. Poset-based cleaning is worse than LCC-only only at the largest shifts (d ≥ 0.45), where the ghost-real geographic overlap is maximal and the ordering criterion is least reliable.
 
 ### Failure modes
 
-**1. Faint ghost misidentified as real anatomy (low r)**
-At r = 0.25 the ghost is dim. TotalSegmentator may assign a small mask to the real structure and a comparably small mask to the ghost. If the ghost happens to be the largest component (e.g. it overlaps a bright background region and gains extra voxels), poset-based cleaning trusts it as the anchor and removes the real structure. This explains the r = 0.25 regime where both Dice and Precision degrade.
+**1. Anchor-ghost inversion**
+When the segmenter assigns a larger or better-calibrated mask to the ghost than to the real structure, the "keep largest component" rule retains the ghost as anchor and removes real anatomy. `humerus_right` is the clearest instance in the dataset: the only structure where both Dice (−0.110) and Precision (−0.113) fall together, confirming that the removed component is predominantly TP rather than FP ghost.
 
-**2. Ghost and real structure merge into one component**
-If d is large enough that the ghost overlaps the real structure spatially, `scipy.ndimage.label` sees a single blob. Poset-based cleaning cannot split a connected component — no cleaning occurs, but no harm is done either.
+**2. Geographic overlap between ghost and real anatomy**
+The `brain_to_heart` crop window places ghost anatomy from the superior field near the cardiac/sub-diaphragmatic boundary — precisely where compact structures (stomach, spleen, liver, esophagus, adrenal glands) legitimately reside. When ghost and real anatomy co-occupy the same S-I band, the spatial-ordering criterion is uninformative and fires on real structures as readily as on ghosts. At threshold 1.00, `brain_to_heart` produces 293 degradations vs. 5 improvements.
 
 **3. Structures with genuinely variable S-I extent**
-`small_bowel` is the primary case: it is mobile, non-convex, and anatomically spans a wide S-I range with many normally-disconnected loops. The empirical constraint "stomach above small_bowel" (P ≥ 0.95) is valid on average, but individual loops of small_bowel legitimately appear at stomach level. Poset-based cleaning removes those loops as apparent ghosts — they are real anatomy. This is the dominant source of Dice degradation in the results.
+`small_bowel` is mobile, non-convex, and spans a wide S-I range with disconnected loops that legitimately appear at stomach level. The constraint fires on these loops as apparent ghosts and removes real anatomy. Structures with high normal S-I variability violate the statistical ordering assumption at the individual-subject level even when the population-level constraint is sound.
 
-**4. Cascade errors**
-Pair processing is sequential. If an early pair incorrectly removes a real component (the modified mask becomes the new anchor), later pairs that reference that structure clean against the wrong boundary. Errors compound toward peripheral structures. Middle-out ordering mitigates this by establishing trustworthy central anchors first, but does not eliminate it.
+**4. Tubular structures spanning the full crop**
+`aorta` (mean ΔDice = −0.034), `inferior_vena_cava` (−0.042), and `esophagus` run along the full S-I axis of the crop window. Their predicted masks legitimately extend to the inferior boundary, which can satisfy a spatial-ordering violation without the component being a ghost. The method cannot distinguish a real inferior extent from a displaced component, and both metrics degrade rather than Precision improving alone.
 
-**5. Oblique / spatially ambiguous structures**
-Tubular structures that run obliquely along the S-I axis — `aorta` (mean ΔDice = −0.034), `inferior_vena_cava` (−0.042) — are susceptible because their bounding-box extent is wide relative to their true positional centre. The constraint-consistency guard can misidentify the real LCC as a ghost when it sits slightly lower than the constraint partner expects, then removes it. Both structures also degrade in Precision, confirming that true voxels are being discarded.
+**5. Ghost-real merging suppresses cleaning**
+When the shift d is small enough that ghost and real anatomy spatially overlap, the segmenter may produce a single fused component. Poset-based cleaning cannot split a connected component: no action fires and the ghost persists undetected. No harm is done, but no benefit is obtained either.
 
-**6. Cannot recover under-segmentation**
-If TotalSegmentator completely missed the real structure and detected only the ghost, poset-based cleaning removes the ghost and leaves an empty mask. Recall was already 0; this is correct behaviour but provides no improvement.
-
-**7. Only addresses S-I wrap-around**
-Left–right and anterior–posterior aliasing (less common clinically but physically possible) are not handled. The mediolateral and AP axes of the poset exist but are not used in poset-based cleaning.
-
-**8. Requires a well-calibrated poset**
-A constraint that fires spuriously (P just above threshold but not representative of the deployment population) actively harms predictions. The P ≥ 0.99 threshold is more conservative and reduces this risk at the cost of fewer active pairs (~303 vs ~500).
+**6. Sensitive to poset calibration**
+A constraint with P just above the threshold but not representative of the deployment population fires spuriously on real anatomy. At P ≥ 0.95 (~500 active pairs) degradations are measurably higher than at P ≥ 0.99 (~303 pairs). An uncalibrated or extrapolated poset can actively worsen segmentation quality rather than improve it.
 
 ### Clinical deployment considerations
 

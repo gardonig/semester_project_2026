@@ -1,6 +1,7 @@
 """
-Plot full CM4 removal sequences for one **good** and one **bad** case (same selection
-policy as ``visualize_cm4_real_modes.pick_cases_stratified``).
+Plot full CM4 removal sequences for **good** and **bad** cases (greedy diversity over
+the eval CSV). The real-modes grid script ``visualize_cm4_real_modes`` uses a separate
+``visualize_cm4_real_modes`` (CLI ``--subject``; same policy as ``pick_cases_s0175_focus``).
 
 Each panel shows one coronal **MRI slice**; removal overlays use an **A/P silhouette**
 (full LR×SI footprint via logical OR along the coronal normal) so 3D extent is visible.
