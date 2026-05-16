@@ -1053,6 +1053,7 @@ class QueryDialog(QDialog):
         # Answer history list — hidden until at least one answer is given
         self._history_list = QListWidget()
         self._history_list.setMaximumHeight(110)
+        self._history_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._history_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self._history_list.setStyleSheet(
             """
