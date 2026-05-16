@@ -549,7 +549,8 @@ class MainWindow(QMainWindow):
 
     def _open_poset_viewer(self) -> None:
         try:
-            win = PosetViewer()
+            default = OUTPUT_DIR / "tests" / "presentation_poset.json"
+            win = PosetViewer(poset_path=str(default) if default.exists() else None)
             win.setWindowFlags(Qt.Window)
             self._poset_viewer_windows.append(win)
             win.show()

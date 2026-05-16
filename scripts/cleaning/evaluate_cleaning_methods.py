@@ -95,6 +95,14 @@ def recall(pred: np.ndarray, gt: np.ndarray) -> float:
     return tp / pos if pos > 0 else 1.0
 
 
+def f1(pred: np.ndarray, gt: np.ndarray) -> float:
+    """Voxel-wise F1 from precision and recall of ``pred`` vs ``gt``."""
+    p = precision(pred, gt)
+    r = recall(pred, gt)
+    s = p + r
+    return float(2.0 * p * r / s) if s > 0 else 0.0
+
+
 def tp_fp_fn(pred: np.ndarray, gt: np.ndarray):
     p, g = pred.astype(bool), gt.astype(bool)
     tp = int((p & g).sum())
@@ -770,6 +778,8 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                     pred0 = all_preds[name]
                     d0 = dice(pred0, gt)
                     d3 = dice(c3[name], gt)
+                    f0 = f1(pred0, gt)
+                    f3 = f1(c3[name], gt)
                     p0 = precision(pred0, gt)
                     p3 = precision(c3[name], gt)
                     rc = recall(pred0, gt)  # recall unchanged by cleaning
@@ -779,8 +789,11 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                     tp_removed[2] += tp_removed_pc
 
                     delta3 = d3 - d0
-                    if delta3 > 0.0001:    improved[2] += 1
-                    elif delta3 < -0.0001: degraded[2] += 1
+                    delta_f1 = f3 - f0
+                    if delta_f1 > 0.0001:
+                        improved[2] += 1
+                    elif delta_f1 < -0.0001:
+                        degraded[2] += 1
 
                     # NOTE: older CSV files on disk used the column names
                     # dice_m3, delta_m3, precision_m3, delta_prec_m3, vox_removed_m3.
@@ -796,6 +809,9 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                         "dice_before":      round(d0, 5),
                         "dice_pc":          round(d3, 5),
                         "delta_pc":         round(d3 - d0, 5),
+                        "f1_before":        round(f0, 5),
+                        "f1_pc":            round(f3, 5),
+                        "delta_f1":         round(delta_f1, 5),
                         "precision_before": round(p0, 5),
                         "precision_pc":     round(p3, 5),
                         "delta_prec_pc":    round(p3 - p0, 5),
@@ -811,10 +827,10 @@ def _run_one_subject(args, subj, data_dir, exp_dir, poset,
                     fp_removed[2] += r3.get(name, 0)
 
             if tag_rows:
-                md  = np.mean([r["delta_pc"]      for r in tag_rows])
+                md  = np.mean([r["delta_f1"]     for r in tag_rows])
                 mp  = np.mean([r["delta_prec_pc"] for r in tag_rows])
                 print(f"    {tag}  n={len(tag_rows):2d} | "
-                      f"ΔDice={md:+.4f} | "
+                      f"ΔF1={md:+.4f} | "
                       f"ΔPrec={mp:+.4f} | "
                       f"improved={improved[2]} degraded={degraded[2]} "
                       f"TP_removed={tp_removed[2]} FP_removed={fp_removed[2]}")

@@ -22,7 +22,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -50,7 +52,9 @@ from ..core.matrix_aggregation import (
     aggregate_to_p_yes_matrix,
     align_matrix_lists_to_reference,
     apply_canonical_per_axis_orders,
+    canonical_sort_permutation_for_axis,
     cell_aggregate_to_display_matrix,
+    permute_relation_matrix,
     reindex_count_matrix_to_structure_order,
     reindex_matrix_to_structure_order,
 )
@@ -183,14 +187,14 @@ class HasseDiagramView(QGraphicsView):
         arrow_size = 12.0
 
         for u, v in edges:
-            p1 = positions.get(u)
-            p2 = positions.get(v)
-            if p1 is None or p2 is None:
+            p_superior = positions.get(u)  # u is above v → drawn at top
+            p_inferior = positions.get(v)  # v is below u → drawn at bottom
+            if p_superior is None or p_inferior is None:
                 continue
 
-            # Direction from u -> v
-            dx = p2.x() - p1.x()
-            dy = p2.y() - p1.y()
+            # Direction from inferior (bottom) → superior (top): standard Hasse convention
+            dx = p_superior.x() - p_inferior.x()
+            dy = p_superior.y() - p_inferior.y()
             length = math.hypot(dx, dy)
             if length == 0:
                 continue
@@ -199,15 +203,15 @@ class HasseDiagramView(QGraphicsView):
             uy = dy / length
 
             # Shorten the line so it touches the node borders instead of their centres
-            start_x = p1.x() + ux * node_radius
-            start_y = p1.y() + uy * node_radius
-            end_x = p2.x() - ux * node_radius
-            end_y = p2.y() - uy * node_radius
+            start_x = p_inferior.x() + ux * node_radius
+            start_y = p_inferior.y() + uy * node_radius
+            end_x = p_superior.x() - ux * node_radius
+            end_y = p_superior.y() - uy * node_radius
 
             # Main edge line
             self._scene.addLine(start_x, start_y, end_x, end_y, edge_pen)
 
-            # Arrowhead at the target node (pointing into v)
+            # Arrowhead at the superior node (pointing upward into u)
             angle = math.atan2(dy, dx)
             left_angle = angle - math.radians(25)
             right_angle = angle + math.radians(25)
@@ -285,6 +289,18 @@ class PosetViewer(QWidget):
         self._matrix_anteroposterior_n_notasked: Optional[List[List[Optional[int]]]] = None
         self._matrix_windows: List[QDialog] = []
 
+        self._threshold_pct: int = 100
+        # Stored references to per-axis widgets so _refresh_all_tabs can update them in-place.
+        self._vert_hasse: Optional[HasseDiagramView] = None
+        self._ml_hasse: Optional[HasseDiagramView] = None
+        self._ap_hasse: Optional[HasseDiagramView] = None
+        self._vert_list: Optional[QListWidget] = None
+        self._ml_list: Optional[QListWidget] = None
+        self._ap_list: Optional[QListWidget] = None
+        self._vert_diagram_group: Optional[QGroupBox] = None
+        self._ml_diagram_group: Optional[QGroupBox] = None
+        self._ap_diagram_group: Optional[QGroupBox] = None
+
         self._tabs = QTabWidget()
         root = QVBoxLayout(self)
 
@@ -318,6 +334,29 @@ class PosetViewer(QWidget):
         self._status_label.setStyleSheet("color: #555;")
         toolbar.addWidget(self._status_label)
         root.addLayout(toolbar)
+
+        # Threshold control bar
+        thresh_bar = QHBoxLayout()
+        thresh_bar.addWidget(QLabel("P(above) ≥"))
+        self._thresh_label = QLabel("100%")
+        self._thresh_label.setMinimumWidth(42)
+        self._thresh_label.setStyleSheet("font-weight: bold;")
+        thresh_bar.addWidget(self._thresh_label)
+        self._thresh_slider = QSlider(Qt.Horizontal)
+        self._thresh_slider.setMinimum(0)
+        self._thresh_slider.setMaximum(100)
+        self._thresh_slider.setValue(100)
+        self._thresh_slider.setTickInterval(10)
+        self._thresh_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._thresh_slider.valueChanged.connect(self._on_threshold_slider)
+        thresh_bar.addWidget(self._thresh_slider, stretch=1)
+        for arrow, delta in [("◀", -1), ("▶", 1)]:
+            btn = QPushButton(arrow)
+            btn.setFixedWidth(28)
+            btn.clicked.connect(lambda _, d=delta: self._set_threshold(self._threshold_pct + d))
+            thresh_bar.addWidget(btn)
+        root.addLayout(thresh_bar)
+
         root.addWidget(self._tabs)
 
         if poset_path:
@@ -479,16 +518,24 @@ class PosetViewer(QWidget):
     def _load_from_path(self, path: str) -> None:
         try:
             poset = load_poset_from_json(path)
-            self._structures = poset.structures
-            self._M_vertical = poset.matrix_vertical
-            self._M_mediolateral = poset.matrix_mediolateral
-            self._M_anteroposterior = poset.matrix_anteroposterior
-            self._matrix_vertical_n_answered = poset.n_answered_vertical
-            self._matrix_vertical_n_notasked = poset.n_notasked_vertical
-            self._matrix_mediolateral_n_answered = poset.n_answered_mediolateral
-            self._matrix_mediolateral_n_notasked = poset.n_notasked_mediolateral
-            self._matrix_anteroposterior_n_answered = poset.n_answered_anteroposterior
-            self._matrix_anteroposterior_n_notasked = poset.n_notasked_anteroposterior
+            structures = poset.structures
+            if structures:
+                perm_v = canonical_sort_permutation_for_axis(structures, AXIS_VERTICAL)
+                perm_ml = canonical_sort_permutation_for_axis(structures, AXIS_MEDIOLATERAL)
+                perm_ap = canonical_sort_permutation_for_axis(structures, AXIS_ANTERIOR_POSTERIOR)
+                self._structures = [structures[i] for i in perm_v]
+                self._structures_ml = [structures[i] for i in perm_ml]
+                self._structures_ap = [structures[i] for i in perm_ap]
+                self._M_vertical = permute_relation_matrix(poset.matrix_vertical, perm_v)
+                self._M_mediolateral = permute_relation_matrix(poset.matrix_mediolateral, perm_ml)
+                self._M_anteroposterior = permute_relation_matrix(poset.matrix_anteroposterior, perm_ap)
+            else:
+                self._structures = []
+                self._structures_ml = None
+                self._structures_ap = None
+                self._M_vertical = poset.matrix_vertical
+                self._M_mediolateral = poset.matrix_mediolateral
+                self._M_anteroposterior = poset.matrix_anteroposterior
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
                 self,
@@ -509,8 +556,6 @@ class PosetViewer(QWidget):
         self._matrix_mediolateral_n_notasked = None
         self._matrix_anteroposterior_n_answered = None
         self._matrix_anteroposterior_n_notasked = None
-        self._structures_ml = None
-        self._structures_ap = None
         self._rebuild_tabs()
 
     def _save_merged_consensus_json(self) -> None:
@@ -768,14 +813,16 @@ class PosetViewer(QWidget):
                     out.add((i, j))
         return out
 
-    def _matrix_to_edges(self, M: List[List[Union[int, float]]]) -> Set[Tuple[int, int]]:
-        """Derive pDAG edges from matrix (discrete +1, probability p==1.0)."""
+    def _matrix_to_edges(
+        self, M: List[List[Union[int, float]]], threshold: float = 1.0
+    ) -> Set[Tuple[int, int]]:
+        """Derive pDAG edges from matrix where cell value >= threshold."""
         edges: Set[Tuple[int, int]] = set()
         n = len(M)
         for i in range(n):
             row = M[i]
             for j in range(min(n, len(row))):
-                if i != j and isinstance(row[j], (int, float)) and float(row[j]) >= 1.0 - 1e-9:
+                if i != j and isinstance(row[j], (int, float)) and float(row[j]) >= threshold - 1e-9:
                     edges.add((i, j))
         return edges
 
@@ -854,6 +901,7 @@ class PosetViewer(QWidget):
         M: List[List[Union[int, float]]],
         axis_label: str,
         relation_label: str,
+        threshold_pct: int = 100,
     ) -> None:
         list_widget.clear()
         if self._merged_mode:
@@ -896,17 +944,20 @@ class PosetViewer(QWidget):
                 list_widget.addItem(f"  null (not asked yet): {not_asked}")
             list_widget.addItem("")
 
-            # Hasse from strict edges: discrete (+1) or probability (p==1.0).
-            pdag_edges = self._matrix_to_edges(M)
+            threshold = threshold_pct / 100.0
+            pdag_edges = self._matrix_to_edges(M, threshold=threshold)
             try:
                 edges = self._transitive_reduction(len(structures), pdag_edges)
             except Exception:
                 edges = pdag_edges
 
+            thresh_str = f"P ≥ {threshold_pct}%"
             if not edges:
-                list_widget.addItem(f"No strict '{relation_label}' relations derived from matrix.")
+                list_widget.addItem(
+                    f"No '{relation_label}' relations at {thresh_str}."
+                )
             else:
-                list_widget.addItem("Cover relations (Hasse / reduced +1 edges):")
+                list_widget.addItem(f"Cover relations ({thresh_str}, Hasse-reduced):")
                 for u, v in sorted(edges):
                     su, sv = structures[u], structures[v]
                     list_widget.addItem(f"{su.name}  ≻  {sv.name}")
@@ -1175,16 +1226,62 @@ class PosetViewer(QWidget):
         )
         dlg.show()
 
+    # ------ Threshold controls ------
+
+    def _set_threshold(self, pct: int) -> None:
+        pct = max(0, min(100, pct))
+        self._threshold_pct = pct
+        self._thresh_label.setText(f"{pct}%")
+        # Suppress slider signal while we set its value programmatically.
+        self._thresh_slider.blockSignals(True)
+        self._thresh_slider.setValue(pct)
+        self._thresh_slider.blockSignals(False)
+        self._refresh_all_tabs()
+
+    def _on_threshold_slider(self, value: int) -> None:
+        self._threshold_pct = value
+        self._thresh_label.setText(f"{value}%")
+        self._refresh_all_tabs()
+
+    def _refresh_all_tabs(self) -> None:
+        """Redraw the Hasse diagram and edge list for all three tabs using the current threshold."""
+        t = self._threshold_pct
+        title = f"Hasse diagram (P ≥ {t}%)"
+        axes = [
+            ("Vertical", "above", self._vert_list, self._vert_hasse,
+             self._vert_diagram_group, self._M_vertical),
+            ("Lateral", "to the left of", self._ml_list, self._ml_hasse,
+             self._ml_diagram_group, self._M_mediolateral),
+            ("Anteroposterior", "in front of", self._ap_list, self._ap_hasse,
+             self._ap_diagram_group, self._M_anteroposterior),
+        ]
+        for axis_label, relation_label, lw, hv, grp, M in axes:
+            if lw is None or hv is None:
+                continue
+            if grp is not None:
+                grp.setTitle(title)
+            self._fill_tab(
+                lw, hv,
+                self._structures_for_tab(axis_label),
+                M,
+                axis_label,
+                relation_label,
+                threshold_pct=t,
+            )
+
     def _rebuild_tabs(self) -> None:
         self._clear_tabs()
         self._update_title_and_status()
         self._save_merged_btn.setEnabled(bool(self._merged_mode and self._structures))
 
         if not self._structures:
+            self._vert_hasse = self._ml_hasse = self._ap_hasse = None
+            self._vert_list = self._ml_list = self._ap_list = None
+            self._vert_diagram_group = self._ml_diagram_group = self._ap_diagram_group = None
             welcome = QWidget()
             wlay = QVBoxLayout(welcome)
             hint = QLabel(
-                "Use “Open JSON…” to load a saved poset, or “Merge JSON files…” to combine\n"
+                'Use "Open JSON..." to load a saved poset, or "Merge JSON files..." to combine\n'
                 "multiple raters. Merge requires identical structure order, names, and CoM values."
             )
             hint.setWordWrap(True)
@@ -1193,6 +1290,8 @@ class PosetViewer(QWidget):
             self._tabs.addTab(welcome, "Welcome")
             return
 
+        diagram_title = f"Hasse diagram (P ≥ {self._threshold_pct}%)"
+
         # Tab: Vertical (top–bottom)
         vert_widget = QWidget()
         vert_layout = QHBoxLayout(vert_widget)
@@ -1200,12 +1299,11 @@ class PosetViewer(QWidget):
         vert_list_layout = QVBoxLayout(vert_list_group)
         vert_list = QListWidget()
         vert_list_layout.addWidget(vert_list)
-        vert_diagram_group = QGroupBox("Hasse diagram (+1 strict-above relations only)")
+        vert_diagram_group = QGroupBox(diagram_title)
         vert_diagram_layout = QVBoxLayout(vert_diagram_group)
         vert_hasse = HasseDiagramView()
         vert_hasse.setMinimumSize(400, 300)
         vert_diagram_layout.addWidget(vert_hasse)
-        # Matrix view button
         vert_matrix_btn = QPushButton("Show matrix…")
         vert_matrix_btn.setToolTip(
             "Tri-valued matrix (single file), or P(yes) heatmap for merged / saved merged JSON."
@@ -1213,13 +1311,14 @@ class PosetViewer(QWidget):
         vert_diagram_layout.addWidget(vert_matrix_btn)
         vert_layout.addWidget(vert_list_group, stretch=1)
         vert_layout.addWidget(vert_diagram_group, stretch=2)
+        self._vert_list = vert_list
+        self._vert_hasse = vert_hasse
+        self._vert_diagram_group = vert_diagram_group
         self._fill_tab(
-            vert_list,
-            vert_hasse,
+            vert_list, vert_hasse,
             self._structures_for_tab("Vertical"),
-            self._M_vertical,
-            "Vertical",
-            "above",
+            self._M_vertical, "Vertical", "above",
+            threshold_pct=self._threshold_pct,
         )
         self._tabs.addTab(vert_widget, "Vertical (top–bottom)")
 
@@ -1230,7 +1329,7 @@ class PosetViewer(QWidget):
         ml_list_layout = QVBoxLayout(ml_list_group)
         ml_list = QListWidget()
         ml_list_layout.addWidget(ml_list)
-        ml_diagram_group = QGroupBox("Hasse diagram (+1 strict-above relations only)")
+        ml_diagram_group = QGroupBox(diagram_title)
         ml_diagram_layout = QVBoxLayout(ml_diagram_group)
         ml_hasse = HasseDiagramView()
         ml_hasse.setMinimumSize(400, 300)
@@ -1242,13 +1341,14 @@ class PosetViewer(QWidget):
         ml_diagram_layout.addWidget(ml_matrix_btn)
         ml_layout.addWidget(ml_list_group, stretch=1)
         ml_layout.addWidget(ml_diagram_group, stretch=2)
+        self._ml_list = ml_list
+        self._ml_hasse = ml_hasse
+        self._ml_diagram_group = ml_diagram_group
         self._fill_tab(
-            ml_list,
-            ml_hasse,
+            ml_list, ml_hasse,
             self._structures_for_tab("Lateral"),
-            self._M_mediolateral,
-            "Lateral",
-            "to the left of",
+            self._M_mediolateral, "Lateral", "to the left of",
+            threshold_pct=self._threshold_pct,
         )
         self._tabs.addTab(ml_widget, "Lateral (right–left, patient's view)")
 
@@ -1259,7 +1359,7 @@ class PosetViewer(QWidget):
         ap_list_layout = QVBoxLayout(ap_list_group)
         ap_list = QListWidget()
         ap_list_layout.addWidget(ap_list)
-        ap_diagram_group = QGroupBox("Hasse diagram (+1 strict-above relations only)")
+        ap_diagram_group = QGroupBox(diagram_title)
         ap_diagram_layout = QVBoxLayout(ap_diagram_group)
         ap_hasse = HasseDiagramView()
         ap_hasse.setMinimumSize(400, 300)
@@ -1271,13 +1371,14 @@ class PosetViewer(QWidget):
         ap_diagram_layout.addWidget(ap_matrix_btn)
         ap_layout.addWidget(ap_list_group, stretch=1)
         ap_layout.addWidget(ap_diagram_group, stretch=2)
+        self._ap_list = ap_list
+        self._ap_hasse = ap_hasse
+        self._ap_diagram_group = ap_diagram_group
         self._fill_tab(
-            ap_list,
-            ap_hasse,
+            ap_list, ap_hasse,
             self._structures_for_tab("Anteroposterior"),
-            self._M_anteroposterior,
-            "Anteroposterior",
-            "in front of",
+            self._M_anteroposterior, "Anteroposterior", "in front of",
+            threshold_pct=self._threshold_pct,
         )
         self._tabs.addTab(ap_widget, "Anteroposterior (front–back)")
 

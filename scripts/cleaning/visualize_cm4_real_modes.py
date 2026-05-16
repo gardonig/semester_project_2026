@@ -5,13 +5,15 @@ Final segmentations always come from ``evaluate_cleaning_methods.method4_center_
 (the same routine as batch eval). ``run_cm4_with_logs`` is only for per-step captions;
 **blue / red / green overlays use the full removal** ``pred & ~cleaned`` for the target
 structure (all poset pairs), not a single logged sub-step — otherwise the figure could
-disagree with CSV ΔDice / ``vox_removed_pc`` when multiple steps touch the same organ.
+disagree with CSV metrics / ``vox_removed_pc`` when multiple steps touch the same organ.
+Figure panels report **ΔF1** from the full 3D masks shown (before vs after cleaning).
 
 Case selection (merged CSV, **one subject** — default ``FOCUS_SUBJECT``; override with ``--subject``):
-  - **Good** rows: ``d_frac ≤ 0.20``, ``ΔDice > 0``, cleaning applied; sorted by **largest**
-    ``vox_removed_pc`` first so larger removed components show clearly (correct TP removal).
-  - **Bad** rows: ``d_frac ≤ 0.45``, ``ΔDice < 0``; same large-voxel bias (large FP / harmful
-    removals visible).
+  - **Good** rows: ``d_frac ≤ 0.20``, ``ΔF1 > 0`` when column ``delta_f1`` exists (else ``ΔDice > 0``),
+    cleaning applied; sorted by **largest** ``vox_removed_pc`` first so larger removed components
+    show clearly (correct TP removal).
+  - **Bad** rows: ``d_frac ≤ 0.45``, ``ΔF1 < 0`` (else ``ΔDice < 0``); same large-voxel bias
+    (large FP / harmful removals visible).
 
 Coronal panels: overlays use an **A/P silhouette**
 (logical OR along the anterior–posterior axis) projected onto the coronal LR×SI plane, so
@@ -19,22 +21,29 @@ the full footprint of each 3D mask is visible even when the MRI slice only clips
 the organ. **Only the MRI grayscale** stays a single coronal slice. For subject ``s0175``,
 the SI axis (image rows) is drawn **2× taller** on screen than LR for readability; other
 subjects keep square data pixels. **before**: blue
-(removals) + purple (partner); **after**: red (removed TP) + green (removed FP).
+(targeted structure removals) + purple (trusted anchor); **after**: red (removed TP) + green (removed FP).
+MRI axes show short titles (crop + subject, before/after); the companion ``.md`` lists full case details.
 Third “two-structure only” panel removed.
 
 Legend colors:
-  - Blue — target segmentation voxels removed by CM4 (scheduled removal)
-  - Purple — partner structure whose constraint triggers cleaning
+  - Blue — targeted structure: voxels CM4 removes from the organ (scheduled removal)
+  - Purple — trusted anchor: partner structure whose constraint drives the step
   - Red — removed true-positive voxels (overlap with GT)
   - Green — removed false-positive voxels
 
+Performance:
+  Loading all segmentations + GT for one volume and running **CM4 twice** (``method4_center_conflict`` +
+  ``run_cm4_with_logs``) dominates runtime. The script **caches** that work per ``(subject, crop, tag)``
+  and **precomputes** each selected row once, then draws **good-only** and **bad-only** figures from the
+  same preps (no duplicate dry-run pass). Disk caching of bundles is not enabled (masks are large); re-run
+  is still needed if data change.
+
 Outputs:
-  results/cm4_real_cases/cm4_real_good_bad_examples.png  (default ``--subject``)
-  results/cm4_real_cases/cm4_real_case_details.md
+  results/cm4_real_cases/cm4_real_case_details.md  (companion notes for all selected rows)
   results/cm4_real_cases/cm4_real_good_examples.png
   results/cm4_real_cases/cm4_real_bad_examples.png
 
-  Other subjects get ``_*`` suffixes, e.g. ``cm4_real_good_bad_examples_s0167.png``.
+  Other subjects get ``_*`` suffixes, e.g. ``cm4_real_good_examples_s0167.png``.
 
 Usage:
   python scripts/cleaning/visualize_cm4_real_modes.py --subject s0167
@@ -45,7 +54,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib
 
@@ -60,7 +69,6 @@ from nibabel.orientations import aff2axcodes
 
 import sys
 import re
-import textwrap
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -76,8 +84,7 @@ from evaluate_cleaning_methods import (
     method4_center_conflict,
     compute_crop_window,
     crop_gt,
-    dice,
-    precision,
+    f1,
 )
 
 DATA_DIR = PROJECT_ROOT / "data" / "datasets" / "TotalsegmentatorMRI_dataset_v200"
@@ -87,19 +94,28 @@ POSET_PATH = PROJECT_ROOT / "data" / "posets" / "empirical" / "totalseg_mri_empi
 OUT_DIR = PROJECT_ROOT / "results" / "cm4_real_cases"
 THRESHOLD = 1.00
 
-# ``render_good_bad_grid`` / ``visualize_case_row`` layout & typography
+# ``render_case_tile_grid`` / ``visualize_case_row`` layout & typography.
+# Heavy CM4 work is cached per (subject, crop, tag); each figure reuses ``CaseRowPrep``.
 FIG_TEXT_FONTSIZE = 12
-# Wrap subplot titles (above MRI panels) so long structure/crop/tag lines stay inside the panel.
-FIG_TITLE_WRAP_CHARS = 42
+FIG_PANEL_TITLE_FONTSIZE = 11  # crop + subject lines above MRI panels
+FIG_COMBINED_ROW_HSPACE = 0.30  # vertical gap between case rows (tight; no title/text overlap)
+FIG_ROW_HSPACE_SINGLE = 0.09  # single-row grids / dry-run layout (minimal gap)
 # Lower scale => smaller coronal image panels (inches per data pixel unit) for balance with text.
 FIG_LAYOUT_SCALE = 0.0178
-FIG_ROW_HEIGHT_FACTOR = 1.88  # per-row vertical extent vs coronal height (was 2.05 at scale 0.021)
+# Shorter panel titles → less band above MRI; keep factor just above 1 so titles + image fit.
+FIG_ROW_HEIGHT_FACTOR = 1.66
+FIG_PER_ROW_HEIGHT_MULT = 1.02
 FIG_TEXT_COL_WIDTH_MULT = 2.85  # text column width vs max coronal width (was 2.6)
+# ``tight_layout`` top; legend is placed from title bboxes so this only needs modest headroom.
+FIG_TIGHT_RECT_TOP_COMBINED = 0.94
+FIG_TIGHT_RECT_TOP_TILE = 0.94
+# Figure fraction: gap from top of MRI **title** text to bottom of legend.
+FIG_LEGEND_GAP_ABOVE_TITLE = 0.012
 # Tiled good-only / bad-only: one case strip per row (``SPLIT_FIG_NCOL=1`` → N rows × 1 column).
 # Each row is still before | after | text. Use ``SPLIT_FIG_NCOL=2`` for two strips per row, etc.
 SPLIT_FIG_NCOL = 1
 SPLIT_FIG_SCALE_MULT = 0.90  # slightly smaller cells than the combined strip figure
-SPLIT_FIG_HSPACE = 0.52  # vertical gap between stacked rows (room for wrapped titles)
+SPLIT_FIG_HSPACE = 0.34  # vertical gap between stacked strips (good/bad-only figures)
 
 # Single-subject publication figure (largest-voxel examples)
 FOCUS_SUBJECT = "s0175"
@@ -139,25 +155,6 @@ def strip_cm4_from_figure_text(s: str) -> str:
     return re.sub(r"\s+", " ", t).strip(" \t-_")
 
 
-def _wrap_panel_title(text: str, width: int = FIG_TITLE_WRAP_CHARS) -> str:
-    """Insert newlines so title lines stay within ~``width`` characters (MRI axes are narrow)."""
-    blocks: List[str] = []
-    for raw in text.split("\n"):
-        line = raw.strip()
-        if not line:
-            blocks.append("")
-            continue
-        blocks.extend(
-            textwrap.wrap(
-                line,
-                width=max(16, width),
-                break_long_words=True,
-                break_on_hyphens=True,
-            )
-        )
-    return "\n".join(blocks)
-
-
 CROP_ANCHORS = {
     "brain_to_heart": ("brain", "heart"),
     "heart_to_kidney": ("heart", "kidney_left"),
@@ -175,6 +172,7 @@ class CaseRow:
     precision_before: float
     precision_pc: float
     vox_removed_pc: int
+    delta_f1: Optional[float] = None
 
 
 def load_merged_or_partials(eval_dir: Path) -> pd.DataFrame:
@@ -195,6 +193,15 @@ def _has_gt_series(df: pd.DataFrame) -> pd.Series:
 
 
 def _to_case(r) -> CaseRow:
+    d_f1 = getattr(r, "delta_f1", None)
+    delta_f1: Optional[float] = None
+    if d_f1 is not None:
+        try:
+            v = float(d_f1)
+            if v == v:  # not NaN
+                delta_f1 = v
+        except (TypeError, ValueError):
+            pass
     return CaseRow(
         subject=str(r.subject),
         crop=str(r.crop),
@@ -204,6 +211,7 @@ def _to_case(r) -> CaseRow:
         precision_before=float(r.precision_before),
         precision_pc=float(r.precision_pc),
         vox_removed_pc=int(r.vox_removed_pc),
+        delta_f1=delta_f1,
     )
 
 
@@ -238,14 +246,15 @@ def _pick_sorted_largest_voxels(
     *,
     ascending_delta: bool,
     require_positive_delta: Optional[bool] = None,
+    delta_column: str = "delta_pc",
 ) -> List[CaseRow]:
     """Like ``_pick_sorted`` but prefer rows with **largest** ``vox_removed_pc`` first."""
     if require_positive_delta is True:
-        rows = rows[rows["delta_pc"] > 0]
+        rows = rows[rows[delta_column] > 0]
     elif require_positive_delta is False:
-        rows = rows[rows["delta_pc"] < 0]
+        rows = rows[rows[delta_column] < 0]
     rows_sorted = rows.sort_values(
-        ["vox_removed_pc", "delta_pc"],
+        ["vox_removed_pc", delta_column],
         ascending=[False, ascending_delta],
     )
     out: List[CaseRow] = []
@@ -377,33 +386,42 @@ def pick_cases_s0175_focus(
     good_d_max: float = GOOD_D_MAX,
     bad_d_max: float = BAD_D_MAX,
     min_vox_removed: int = MIN_VOX_REMOVED,
+    delta_column: Optional[str] = None,
 ) -> List[Tuple[CaseRow, bool, str]]:
-    """Single-subject panel: good (d≤good_d_max, ΔDice>0) vs bad (d≤bad_d_max, ΔDice<0).
+    """Single-subject panel: good vs bad rows ranked by largest ``vox_removed_pc``.
 
-    ``subject`` defaults to ``FOCUS_SUBJECT``. Rows are ranked by **largest** ``vox_removed_pc``.
-    Up to ``max_good`` / ``max_bad`` cases are kept (fewer if not enough rows in the CSV).
-    When at least two candidates exist on a side, the 2nd good (by rank) and 1st bad are
-    skipped in favour of the next-ranked rows, provided the oversampled list is long enough;
-    otherwise the top ``n`` rows are used.
+    Uses ``delta_f1`` when present in ``df``; otherwise ``delta_pc`` (ΔDice) with a warning.
     """
+    delta_col = delta_column or ("delta_f1" if "delta_f1" in df.columns else "delta_pc")
+    if delta_col not in df.columns:
+        raise RuntimeError(f"pick_cases_s0175_focus: column {delta_col!r} not in eval CSV")
+    if delta_col == "delta_pc" and "delta_f1" not in df.columns:
+        print(
+            "WARNING: eval CSV has no delta_f1; good/bad pools use ΔDice (delta_pc). "
+            "Re-run evaluate_cleaning_methods (cm4) to write F1 columns.",
+            flush=True,
+        )
+
     base = df[
         _has_gt_series(df)
         & (df["subject"].astype(str) == subject)
         & (df["vox_removed_pc"] > 0)
     ].copy()
 
-    good_pool = base[(base["d_frac"] <= good_d_max + 1e-9) & (base["delta_pc"] > 0)].copy()
-    bad_pool = base[(base["d_frac"] <= bad_d_max + 1e-9) & (base["delta_pc"] < 0)].copy()
+    good_pool = base[(base["d_frac"] <= good_d_max + 1e-9) & (base[delta_col] > 0)].copy()
+    bad_pool = base[(base["d_frac"] <= bad_d_max + 1e-9) & (base[delta_col] < 0)].copy()
 
     def _prefer_min_vox(pool: pd.DataFrame, n: int, label: str) -> pd.DataFrame:
         sub = pool[pool["vox_removed_pc"] >= min_vox_removed]
         if len(sub) >= n:
             return sub
         if len(pool) < n:
-            raise RuntimeError(
-                f"{subject} {label}: need {n} row(s); found {len(pool)} "
-                f"(base rows with vox_removed_pc>0: {len(base)})"
+            print(
+                f"WARNING: {subject} {label}: only {len(pool)} row(s) available "
+                f"(need {n}); using all.",
+                flush=True,
             )
+            return pool
         print(
             f"WARNING: {subject} {label}: only {len(sub)} row(s) with "
             f"vox_removed_pc>={min_vox_removed}; using full pool.",
@@ -418,24 +436,27 @@ def pick_cases_s0175_focus(
         fetch_cap,
         ascending_delta=False,
         require_positive_delta=True,
+        delta_column=delta_col,
     )
     bads_all = _pick_sorted_largest_voxels(
         _prefer_min_vox(bad_pool, fetch_cap, "bad"),
         fetch_cap,
         ascending_delta=True,
         require_positive_delta=False,
+        delta_column=delta_col,
     )
 
     n_good = min(max_good, len(goods_all))
     n_bad = min(max_bad, len(bads_all))
 
+    metric = "ΔF1" if delta_col == "delta_f1" else "ΔDice"
     if n_good < 1:
         raise RuntimeError(
-            f"{subject} good: need ≥1 row at d≤{good_d_max:g}, ΔDice>0, vox_removed_pc>0; found 0"
+            f"{subject} good: need ≥1 row at d≤{good_d_max:g}, {metric}>0, vox_removed_pc>0; found 0"
         )
     if n_bad < 1:
         raise RuntimeError(
-            f"{subject} bad: need ≥1 row at d≤{bad_d_max:g}, ΔDice<0, vox_removed_pc>0; found 0"
+            f"{subject} bad: need ≥1 row at d≤{bad_d_max:g}, {metric}<0, vox_removed_pc>0; found 0"
         )
 
     good_ranks = _good_rank_indices(n_good)
@@ -502,6 +523,269 @@ def load_artifact_mri(case: CaseRow, pred_shape: Tuple[int, int, int]) -> np.nda
             f"for {case.subject}/{case.crop}/{case.tag}"
         )
     return mri
+
+
+@dataclass
+class VolumeCm4Bundle:
+    """One (subject, crop, tag) volume: predictions + CM4 outputs + GT + artifact MRI."""
+
+    preds: Dict[str, np.ndarray]
+    cleaned: Dict[str, np.ndarray]
+    removed_tot_log: Dict[str, int]
+    events: List[dict]
+    gt_masks: Dict[str, np.ndarray]
+    mri_art: np.ndarray
+    si_ax: int
+    si_sign: int
+    ap_ax: int
+    lr_ax: int
+
+
+# Cache across rows that share the same experiment folder (avoids duplicate CM4 work).
+_volume_bundle_cache: Dict[Tuple[str, str, str], VolumeCm4Bundle] = {}
+
+
+def clear_volume_bundle_cache() -> None:
+    """Drop cached volume bundles (e.g. before a new ``main()`` run in a long-lived process)."""
+    _volume_bundle_cache.clear()
+
+
+def get_volume_cm4_bundle(case: CaseRow, poset: PosetFromJson) -> VolumeCm4Bundle:
+    """Load one volume and run CM4 once; reused for every structure row from that volume."""
+    key = (case.subject, case.crop, case.tag)
+    if key in _volume_bundle_cache:
+        return _volume_bundle_cache[key]
+
+    pred_dir = EXP_DIR / case.subject / case.crop / case.tag / "segmentations"
+    preds, affine = load_predictions(pred_dir)
+    si_ax, si_sign = get_si_info(affine)
+    ap_ax = get_ap_axis(affine)
+    lr_ax = get_lr_axis(affine)
+    pred_shape = next(iter(preds.values())).shape
+    gt_masks = load_gt_crop(case.subject, case.crop, pred_shape, si_ax, si_sign)
+    mri_art = load_artifact_mri(case, pred_shape)
+
+    cleaned, _removed_eval = method4_center_conflict(preds, poset, si_ax, si_sign, THRESHOLD)
+    cleaned_log, removed_tot_log, events, _snap = run_cm4_with_logs(
+        preds, poset, si_ax, si_sign, THRESHOLD, gt_masks
+    )
+    for name in preds:
+        if not np.array_equal(cleaned[name], cleaned_log[name]):
+            raise RuntimeError(
+                f"CM4 implementation drift: cleaned masks differ for {name!r} in "
+                f"{case.subject}/{case.crop}/{case.tag}. Re-sync run_cm4_with_logs with method4_center_conflict."
+            )
+
+    b = VolumeCm4Bundle(
+        preds=preds,
+        cleaned=cleaned,
+        removed_tot_log=removed_tot_log,
+        events=events,
+        gt_masks=gt_masks,
+        mri_art=mri_art,
+        si_ax=si_ax,
+        si_sign=si_sign,
+        ap_ax=ap_ax,
+        lr_ax=lr_ax,
+    )
+    _volume_bundle_cache[key] = b
+    return b
+
+
+@dataclass
+class CaseRowPrep:
+    """Heavy work done once; ``draw_case_row_from_prep`` only touches Matplotlib."""
+
+    case: CaseRow
+    coronal_shape: Tuple[int, int]
+    mri2d_cor: np.ndarray
+    rem2d_cor: np.ndarray
+    partner2d_cor: np.ndarray
+    tp_removed_2d: np.ndarray
+    fp_removed_2d: np.ndarray
+    summ: Dict[str, Any]
+
+
+def _prep_lookup_key(case: CaseRow, prefer_tp_event: bool) -> Tuple[str, str, str, str, bool]:
+    return (case.subject, case.crop, case.tag, case.structure, bool(prefer_tp_event))
+
+
+def prepare_case_row_data(case: CaseRow, poset: PosetFromJson, prefer_tp_event: bool) -> CaseRowPrep:
+    """Slice + metrics for one row (uses cached volume bundle when possible)."""
+    b = get_volume_cm4_bundle(case, poset)
+    before = b.preds[case.structure]
+    after = b.cleaned[case.structure]
+    gt = b.gt_masks.get(case.structure, np.zeros_like(before, dtype=bool))
+    full_removed = before & ~after
+    if int(full_removed.sum()) != int(b.removed_tot_log.get(case.structure, 0)):
+        if full_removed.any():
+            raise RuntimeError(
+                f"Removal count mismatch for {case.structure}: "
+                f"diff={full_removed.sum()} vs logged={b.removed_tot_log.get(case.structure, 0)}"
+            )
+
+    evt = best_event_for_structure(b.events, case.structure, full_removed, prefer_tp_event)
+    if evt is None and full_removed.any():
+        raise RuntimeError(f"No removal event found for {case.structure} in {case.subject}/{case.crop}/{case.tag}")
+    if evt is None:
+        raise RuntimeError(f"No CM4 removal for {case.structure} in {case.subject}/{case.crop}/{case.tag}")
+
+    partner_name = evt["pair_j"] if evt["target_name"] == evt["pair_i"] else evt["pair_i"]
+    partner_mask = b.preds.get(partner_name, np.zeros_like(before, dtype=bool))
+
+    sl_cor = best_slice_union(full_removed, partner_mask, b.ap_ax)
+    mri2d_cor = extract_oriented_plane(b.mri_art, b.ap_ax, sl_cor, x_axis=b.lr_ax, y_axis=b.si_ax)
+    rem2d_cor = extract_oriented_footprint(full_removed, b.ap_ax, b.lr_ax, b.si_ax)
+    partner2d_cor = extract_oriented_footprint(partner_mask, b.ap_ax, b.lr_ax, b.si_ax)
+
+    tp_removed_2d = extract_oriented_footprint(full_removed & gt, b.ap_ax, b.lr_ax, b.si_ax)
+    fp_removed_2d = extract_oriented_footprint(full_removed & (~gt), b.ap_ax, b.lr_ax, b.si_ax)
+
+    f1_before = f1(before, gt)
+    f1_after = f1(after, gt)
+    delta_f1_live = f1_after - f1_before
+
+    fr_tot = int(full_removed.sum())
+    fr_tp = int((full_removed & gt).sum())
+    fr_fp = int((full_removed & (~gt)).sum())
+
+    slim_evt = {
+        k: evt[k]
+        for k in (
+            "pair_i",
+            "pair_j",
+            "step_kind",
+            "target_name",
+            "removed_voxels",
+            "removed_tp",
+            "removed_fp",
+            "below_limit",
+            "above_limit",
+            "protect_anchor",
+            "anchor_label",
+            "lcc_label",
+            "anchor_voxels",
+            "anchor_extent",
+            "lcc_extent",
+        )
+        if k in evt
+    }
+    summ: Dict[str, Any] = {
+        "coronal_shape": rem2d_cor.shape,
+        "event": slim_evt,
+        "delta_f1": delta_f1_live,
+        "f1_before": f1_before,
+        "f1_after": f1_after,
+        "partner_structure": partner_name,
+        "pair_i": str(evt["pair_i"]),
+        "pair_j": str(evt["pair_j"]),
+        "full_removed_total": fr_tot,
+        "full_removed_tp": fr_tp,
+        "full_removed_fp": fr_fp,
+        "event_removed_voxels": int(evt["removed_voxels"]),
+        "event_removed_tp": int(evt["removed_tp"]),
+        "event_removed_fp": int(evt["removed_fp"]),
+    }
+
+    return CaseRowPrep(
+        case=case,
+        coronal_shape=(int(rem2d_cor.shape[0]), int(rem2d_cor.shape[1])),
+        mri2d_cor=mri2d_cor,
+        rem2d_cor=rem2d_cor,
+        partner2d_cor=partner2d_cor,
+        tp_removed_2d=tp_removed_2d,
+        fp_removed_2d=fp_removed_2d,
+        summ=summ,
+    )
+
+
+def draw_case_row_from_prep(
+    ax_row,
+    prep: CaseRowPrep,
+    label: str,
+    *,
+    stretch_subject: Optional[str] = None,
+    show_text_col: bool = True,
+) -> None:
+    """Render one strip from ``CaseRowPrep``.
+
+    ``show_text_col=True``  (default): ax_row length 2 — combined MRI | text annotation.
+    ``show_text_col=False``: ax_row length 1 — MRI panel only with compact title.
+    """
+    case = prep.case
+    ss = stretch_subject if stretch_subject is not None else FOCUS_SUBJECT
+    y_stretch = FOCUS_SUBJECT_VERTICAL_STRETCH if case.subject == ss else 1.0
+    summ = prep.summ
+    d1 = float(summ["delta_f1"])
+
+    imshow_native(
+        ax_row[0],
+        overlay_combined_cm4(prep.mri2d_cor, prep.partner2d_cor, prep.tp_removed_2d, prep.fp_removed_2d),
+    )
+    if show_text_col:
+        title = f"{case.crop}\n{case.subject}"
+    else:
+        title = f"{case.structure}  ΔF1={d1:+.3f}\n{case.tag}"
+    ax_row[0].set_title(title, fontsize=FIG_PANEL_TITLE_FONTSIZE, pad=3)
+    _set_pixel_true_aspect(ax_row[0], prep.rem2d_cor.shape, vertical_stretch=y_stretch)
+    ax_row[0].axis("off")
+
+    if not show_text_col:
+        return
+
+    ax_row[1].axis("off")
+    sk = strip_cm4_from_figure_text(str(summ["event"]["step_kind"]))
+    partner = str(summ["partner_structure"])
+    frt = int(summ["full_removed_total"])
+    frp = int(summ["full_removed_tp"])
+    frf = int(summ["full_removed_fp"])
+    txt = (
+        f"{label}  ΔF1={d1:+.5f}\n"
+        f"{case.tag}\n"
+        f"step: {sk}\n"
+        f"removed structure: {case.structure}\n"
+        f"trusted anchor (purple): {partner}\n"
+        f"removed voxels (3D): {frt:,}  (TP {frp:,}, FP {frf:,})\n"
+        "(detail in .md)"
+    )
+    ax_row[1].text(
+        0.02,
+        0.5,
+        txt,
+        va="center",
+        ha="left",
+        fontsize=FIG_TEXT_FONTSIZE,
+        family="monospace",
+        linespacing=1.25,
+        transform=ax_row[1].transAxes,
+        clip_on=True,
+    )
+
+
+def precompute_row_preps(
+    cases_order: List[Tuple[CaseRow, bool, str]], poset: PosetFromJson
+) -> List[CaseRowPrep]:
+    """Run the expensive path once per row (volume work is deduplicated)."""
+    return [prepare_case_row_data(case, poset, pref_tp) for case, pref_tp, _lab in cases_order]
+
+
+def precompute_row_preps_safe(
+    cases_order: List[Tuple[CaseRow, bool, str]], poset: PosetFromJson
+) -> Tuple[List[Tuple[CaseRow, bool, str]], List[CaseRowPrep]]:
+    """Like ``precompute_row_preps`` but skips cases that raise RuntimeError (no CM4 event)."""
+    valid_cases: List[Tuple[CaseRow, bool, str]] = []
+    preps: List[CaseRowPrep] = []
+    for case, pref_tp, lab in cases_order:
+        try:
+            preps.append(prepare_case_row_data(case, poset, pref_tp))
+            valid_cases.append((case, pref_tp, lab))
+        except RuntimeError as exc:
+            print(f"WARNING: skipping {case.structure}/{case.subject}/{case.tag}: {exc}", flush=True)
+    return valid_cases, preps
+
+
+def _coronal_shapes_from_preps(preps: List[CaseRowPrep]) -> List[Tuple[int, int]]:
+    return [p.coronal_shape for p in preps]
 
 
 def _bincount_overlap(labeled: np.ndarray, anchor_mask: Optional[np.ndarray], n: int, lcc_label: Optional[int]) -> int:
@@ -829,7 +1113,7 @@ def overlay_before_cm4(
     target_removed_blue_2d: np.ndarray,
     partner_purple_2d: np.ndarray,
 ) -> np.ndarray:
-    """Blue = target voxels scheduled for removal; purple = constraint-partner segmentation."""
+    """Blue = targeted-structure removals; purple = trusted-anchor (constraint) partner."""
     g = _normalize_mri(mri2d)
     rgb = np.stack([g, g, g], axis=-1)
     pp = partner_purple_2d.astype(bool)
@@ -849,6 +1133,30 @@ def overlay_after_tp_fp(mri2d: np.ndarray, tp_red_2d: np.ndarray, fp_green_2d: n
     rgb = np.stack([g, g, g], axis=-1)
     tr = tp_red_2d.astype(bool)
     fg = fp_green_2d.astype(bool)
+    rgb[fg, 0] *= 0.45
+    rgb[fg, 1] = np.maximum(rgb[fg, 1], 0.94)
+    rgb[fg, 2] *= 0.45
+    rgb[tr, 0] = np.maximum(rgb[tr, 0], 0.96)
+    rgb[tr, 1] *= 0.35
+    rgb[tr, 2] *= 0.35
+    return np.clip(rgb, 0, 1)
+
+
+def overlay_combined_cm4(
+    mri2d: np.ndarray,
+    partner_purple_2d: np.ndarray,
+    tp_red_2d: np.ndarray,
+    fp_green_2d: np.ndarray,
+) -> np.ndarray:
+    """Single-panel overlay: purple = trusted anchor; green = removed FP; red = removed TP (wins on overlap)."""
+    g = _normalize_mri(mri2d)
+    rgb = np.stack([g, g, g], axis=-1)
+    pp = partner_purple_2d.astype(bool)
+    fg = fp_green_2d.astype(bool)
+    tr = tp_red_2d.astype(bool)
+    rgb[pp, 0] = np.maximum(rgb[pp, 0], 0.72)
+    rgb[pp, 1] = np.minimum(rgb[pp, 1], 0.42)
+    rgb[pp, 2] = np.maximum(rgb[pp, 2], 0.88)
     rgb[fg, 0] *= 0.45
     rgb[fg, 1] = np.maximum(rgb[fg, 1], 0.94)
     rgb[fg, 2] *= 0.45
@@ -887,171 +1195,20 @@ def visualize_case_row(
     label: str,
     *,
     stretch_subject: Optional[str] = None,
-):
-    """ax_row: length 3 — before | after (TP/FP removal) | text."""
-    pred_dir = EXP_DIR / case.subject / case.crop / case.tag / "segmentations"
-    preds, affine = load_predictions(pred_dir)
-    si_ax, si_sign = get_si_info(affine)
-    ap_ax = get_ap_axis(affine)
-    lr_ax = get_lr_axis(affine)
-    pred_shape = next(iter(preds.values())).shape
-    gt_masks = load_gt_crop(case.subject, case.crop, pred_shape, si_ax, si_sign)
-    mri_art = load_artifact_mri(case, pred_shape)
-
-    # Source of truth for final masks (must match evaluate_cleaning_methods CM4 eval).
-    cleaned, _removed_eval = method4_center_conflict(preds, poset, si_ax, si_sign, THRESHOLD)
-    cleaned_log, removed_tot_log, events, _snap = run_cm4_with_logs(
-        preds, poset, si_ax, si_sign, THRESHOLD, gt_masks
-    )
-    for name in preds:
-        if not np.array_equal(cleaned[name], cleaned_log[name]):
-            raise RuntimeError(
-                f"CM4 implementation drift: cleaned masks differ for {name!r} in "
-                f"{case.subject}/{case.crop}/{case.tag}. Re-sync run_cm4_with_logs with method4_center_conflict."
-            )
-
-    before = preds[case.structure]
-    after = cleaned[case.structure]
-    gt = gt_masks.get(case.structure, np.zeros_like(before, dtype=bool))
-    full_removed = before & ~after
-    if int(full_removed.sum()) != int(removed_tot_log.get(case.structure, 0)):
-        # Logging aggregates per event; allow small mismatch only if structure untouched
-        if full_removed.any():
-            raise RuntimeError(
-                f"Removal count mismatch for {case.structure}: "
-                f"diff={full_removed.sum()} vs logged={removed_tot_log.get(case.structure, 0)}"
-            )
-
-    evt = best_event_for_structure(events, case.structure, full_removed, prefer_tp_event)
-    if evt is None and full_removed.any():
-        raise RuntimeError(f"No removal event found for {case.structure} in {case.subject}/{case.crop}/{case.tag}")
-    if evt is None:
-        raise RuntimeError(f"No CM4 removal for {case.structure} in {case.subject}/{case.crop}/{case.tag}")
-
-    partner_name = evt["pair_j"] if evt["target_name"] == evt["pair_i"] else evt["pair_i"]
-    partner_mask = preds.get(partner_name, np.zeros_like(before, dtype=bool))
-
-    sl_cor = best_slice_union(full_removed, partner_mask, ap_ax)
-    mri2d_cor = extract_oriented_plane(mri_art, ap_ax, sl_cor, x_axis=lr_ax, y_axis=si_ax)
-    rem2d_cor = extract_oriented_footprint(full_removed, ap_ax, lr_ax, si_ax)
-    partner2d_cor = extract_oriented_footprint(partner_mask, ap_ax, lr_ax, si_ax)
-
-    tp_removed_2d = extract_oriented_footprint(full_removed & gt, ap_ax, lr_ax, si_ax)
-    fp_removed_2d = extract_oriented_footprint(full_removed & (~gt), ap_ax, lr_ax, si_ax)
-
-    d0 = dice(before, gt)
-    d1 = dice(after, gt)
-    p0 = precision(before, gt)
-    p1 = precision(after, gt)
-
-    ss = stretch_subject if stretch_subject is not None else FOCUS_SUBJECT
-    y_stretch = (
-        FOCUS_SUBJECT_VERTICAL_STRETCH
-        if case.subject == ss
-        else 1.0
-    )
-
-    imshow_native(ax_row[0], overlay_before_cm4(mri2d_cor, rem2d_cor, partner2d_cor))
-    t_before = _wrap_panel_title(
-        f"{label}: before cleaning (coronal)\n"
-        f"{case.structure} | {case.subject} {case.crop} {case.tag}  "
-        f"MRI AP={sl_cor} · masks = A/P silhouette"
-    )
-    ax_row[0].set_title(
-        t_before,
-        fontsize=FIG_TEXT_FONTSIZE,
-        pad=8 + 3 * max(0, t_before.count("\n")),
-    )
-    _set_pixel_true_aspect(ax_row[0], rem2d_cor.shape, vertical_stretch=y_stretch)
-    ax_row[0].axis("off")
-
-    imshow_native(ax_row[1], overlay_after_tp_fp(mri2d_cor, tp_removed_2d, fp_removed_2d))
-    t_after = _wrap_panel_title(
-        "after cleaning — removals\nred/green = TP/FP (A/P silhouette on this slice)"
-    )
-    ax_row[1].set_title(
-        t_after,
-        fontsize=FIG_TEXT_FONTSIZE,
-        pad=8 + 3 * max(0, t_after.count("\n")),
-    )
-    _set_pixel_true_aspect(ax_row[1], rem2d_cor.shape, vertical_stretch=y_stretch)
-    ax_row[1].axis("off")
-
-    ax_row[2].axis("off")
-    sk = strip_cm4_from_figure_text(str(evt["step_kind"]))
-    txt = (
-        f"{label.upper()}  CSV ΔDice={case.delta_pc:+.5f}\n"
-        f"Pair: {evt['pair_i']} above {evt['pair_j']}\n"
-        f"Step: {sk}\n"
-        f"Target (blue removal): {evt['target_name']}\n"
-        f"Partner (purple): {partner_name}\n"
-        f"Full removal (all steps): {int(full_removed.sum()):,} vox  "
-        f"(TP {int((full_removed & gt).sum()):,}, FP {int((full_removed & ~gt).sum()):,})\n"
-        f"Caption event ({sk}): {evt['removed_voxels']:,} vox  "
-        f"(TP {evt['removed_tp']:,}, FP {evt['removed_fp']:,})\n\n"
-        f"Dice: {d0:.4f} → {d1:.4f}  (Δ {d1 - d0:+.4f})\n"
-        f"Precision: {p0:.4f} → {p1:.4f}  (Δ {p1 - p0:+.4f})\n"
-        f"Total removed (structure): {int(full_removed.sum()):,}  "
-        f"(logged primary event: {evt['removed_voxels']:,} voxels)\n"
-        f"Note: blue/red/green use **full** removal (all steps); caption step is the best-matching log event."
-    )
-    ax_row[2].text(
-        0.02,
-        0.5,
-        txt,
-        va="center",
-        ha="left",
-        fontsize=FIG_TEXT_FONTSIZE,
-        family="monospace",
-        linespacing=1.3,
-        transform=ax_row[2].transAxes,
-        clip_on=False,
-    )
-
-    return {"coronal_shape": rem2d_cor.shape, "event": evt}
-
-
-def _dry_run_case_shapes(
-    cases_order: List[Tuple[CaseRow, bool, str]],
-    poset: PosetFromJson,
-    *,
-    stretch_subject: Optional[str] = None,
-) -> List[Tuple[int, int]]:
-    """Run ``visualize_case_row`` once per case to get coronal (H, W) for layout sizing."""
-    n = len(cases_order)
-    if n == 0:
-        return []
-    fig_tmp, axes_tmp = plt.subplots(n, 3, figsize=(12.5, 3.1 * n))
-    if n == 1:
-        axes_tmp = np.array([axes_tmp])
-    shapes: List[Tuple[int, int]] = []
-    for i, (case, pref_tp, lab) in enumerate(cases_order):
-        s = visualize_case_row(
-            axes_tmp[i],
-            case,
-            poset,
-            prefer_tp_event=pref_tp,
-            label=lab,
-            stretch_subject=stretch_subject,
-        )
-        shapes.append(s["coronal_shape"])
-    plt.close(fig_tmp)
-    return shapes
+) -> Dict[str, Any]:
+    """ax_row: length 3 — before | after | text. Prefer ``prepare_case_row_data`` + ``draw_case_row_from_prep`` when batching."""
+    prep = prepare_case_row_data(case, poset, prefer_tp_event)
+    draw_case_row_from_prep(ax_row, prep, label, stretch_subject=stretch_subject)
+    return prep.summ
 
 
 def _overlay_legend_patches() -> List[Patch]:
     return [
         Patch(
-            facecolor=(0.25, 0.55, 0.98),
-            edgecolor="navy",
-            linewidth=0.7,
-            label="Blue: target removals (A/P silhouette on coronal LR×SI plane)",
-        ),
-        Patch(
             facecolor=(0.72, 0.35, 0.88),
             edgecolor="purple",
             linewidth=0.7,
-            label="Purple: partner (A/P silhouette)",
+            label="Trusted anchor (purple): partner silhouette (A/P)",
         ),
         Patch(
             facecolor=(0.96, 0.22, 0.22),
@@ -1068,68 +1225,118 @@ def _overlay_legend_patches() -> List[Patch]:
     ]
 
 
+def _add_overlay_legend_above_titles(
+    fig: plt.Figure,
+    title_axes: List,
+    *,
+    pad_frac: float = FIG_LEGEND_GAP_ABOVE_TITLE,
+) -> None:
+    """Legend horizontal center of figure, vertical gap above the MRI panel titles (no overlap)."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+    y_top = 0.0
+    for ax in title_axes:
+        t = ax.title
+        if t.get_text():
+            bb = t.get_window_extent(renderer=renderer).transformed(inv)
+            y_top = max(y_top, float(bb.y1))
+    if y_top <= 0.0:
+        y_top = float(title_axes[0].get_position().y1)
+    y = min(y_top + pad_frac, 0.999)
+    fig.legend(
+        handles=_overlay_legend_patches(),
+        loc="lower center",
+        bbox_to_anchor=(0.5, y),
+        ncol=2,
+        fontsize=FIG_TEXT_FONTSIZE,
+        frameon=True,
+        borderaxespad=0.0,
+    )
+
+
 def render_good_bad_grid(
     cases_order: List[Tuple[CaseRow, bool, str]],
     poset: PosetFromJson,
     *,
-    out_png: Path,
     out_md: Path,
-    suptitle: str,
     md_header: str,
     stretch_subject: Optional[str] = None,
+    precomputed_preps: Optional[List[CaseRowPrep]] = None,
+    out_png: Optional[Path] = None,
 ) -> None:
-    """Build the 3-column × N-row figure and companion markdown."""
-    shapes = _dry_run_case_shapes(cases_order, poset, stretch_subject=stretch_subject)
+    """Write companion markdown; optionally also build the combined good+bad PNG (``out_png``)."""
+    if precomputed_preps is not None:
+        if len(precomputed_preps) != len(cases_order):
+            raise ValueError("precomputed_preps length must match cases_order")
+        preps = precomputed_preps
+    else:
+        preps = precompute_row_preps(cases_order, poset)
+
+    md_lines = [md_header, ""]
+    for (case, pref_tp, lab), prep in zip(cases_order, preps):
+        summ = prep.summ
+        sk_md = strip_cm4_from_figure_text(str(summ["event"]["step_kind"]))
+        md_lines.extend(
+            [
+                f"- **{lab}** — targeted structure `{case.structure}` @ `{case.subject}` / `{case.crop}` / `{case.tag}`",
+                f"  - **Trusted anchor (purple silhouette)**: `{summ['partner_structure']}` · poset pair "
+                f"`{summ['pair_i']}` / `{summ['pair_j']}`",
+                f"  - **Step (caption)**: `{sk_md}`",
+                f"  - **F1** (full 3D mask vs GT): {summ['f1_before']:.5f} → {summ['f1_after']:.5f} "
+                f"(Δ {summ['delta_f1']:+.5f})",
+                f"  - **Removed 3D voxels** (matches figure: all `pred & ~cleaned` on target — blue / red / green): "
+                f"{summ['full_removed_total']:,} total; TP (red) {summ['full_removed_tp']:,}; "
+                f"FP (green) {summ['full_removed_fp']:,}",
+                f"  - **Caption event only** (one logged step; subset if multiple steps touched the organ): "
+                f"{summ['event_removed_voxels']:,} removed; TP {summ['event_removed_tp']:,}; "
+                f"FP {summ['event_removed_fp']:,}",
+                "",
+            ]
+        )
+
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_md.write_text("\n".join(md_lines) + "\n")
+    print(f"Saved: {out_md}")
+
+    if out_png is None:
+        return
+
+    shapes = _coronal_shapes_from_preps(preps)
     cor_h = max(s[0] for s in shapes)
     cor_w = max(s[1] for s in shapes)
-    width_ratios = [cor_w, cor_w, int(FIG_TEXT_COL_WIDTH_MULT * cor_w)]
+    width_ratios = [cor_w, int(FIG_TEXT_COL_WIDTH_MULT * cor_w)]
     scale = FIG_LAYOUT_SCALE
     fig_w = scale * sum(width_ratios)
-    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * len(cases_order)
+    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * FIG_PER_ROW_HEIGHT_MULT * len(cases_order)
 
+    gs_kw = {"width_ratios": width_ratios}
+    if len(cases_order) > 1:
+        gs_kw["hspace"] = FIG_COMBINED_ROW_HSPACE
     fig, axes = plt.subplots(
         len(cases_order),
-        3,
+        2,
         figsize=(fig_w, fig_h),
-        gridspec_kw={"width_ratios": width_ratios},
+        gridspec_kw=gs_kw,
     )
     if len(cases_order) == 1:
         axes = np.array([axes])
 
-    md_lines = [md_header, ""]
-    for i, (case, pref_tp, lab) in enumerate(cases_order):
-        summ = visualize_case_row(
+    for i, ((case, pref_tp, lab), prep) in enumerate(zip(cases_order, preps)):
+        draw_case_row_from_prep(
             axes[i],
-            case,
-            poset,
-            prefer_tp_event=pref_tp,
-            label=lab,
+            prep,
+            lab,
             stretch_subject=stretch_subject,
         )
-        md_lines.append(
-            f"- **{lab}**: `{case.subject}` / `{case.crop}` / `{case.tag}` / `{case.structure}` "
-            f"ΔDice={case.delta_pc:+.5f} — `{strip_cm4_from_figure_text(str(summ['event']['step_kind']))}`"
-        )
 
-    fig.suptitle(suptitle, fontsize=FIG_TEXT_FONTSIZE, y=1.095)
-    fig.legend(
-        handles=_overlay_legend_patches(),
-        loc="upper center",
-        ncol=2,
-        fontsize=FIG_TEXT_FONTSIZE,
-        frameon=True,
-        bbox_to_anchor=(0.5, 1.005),
-    )
-
-    fig.tight_layout(rect=[0, 0.07, 1, 0.85])
+    fig.tight_layout(rect=[0, 0.06, 1, FIG_TIGHT_RECT_TOP_COMBINED])
+    _add_overlay_legend_above_titles(fig, [axes[0, 0]])
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
-
-    out_md.write_text("\n".join(md_lines) + "\n")
     print(f"Saved: {out_png}")
-    print(f"Saved: {out_md}")
 
 
 def render_case_tile_grid(
@@ -1137,61 +1344,74 @@ def render_case_tile_grid(
     poset: PosetFromJson,
     *,
     out_png: Path,
-    suptitle: str,
     outer_ncol: int = SPLIT_FIG_NCOL,
     stretch_subject: Optional[str] = None,
+    precomputed_preps: Optional[List[CaseRowPrep]] = None,
+    show_text_col: bool = True,
+    text_col_width_mult: float = FIG_TEXT_COL_WIDTH_MULT,
 ) -> None:
-    """Good-only or bad-only figure: ``outer_ncol`` case strips per row (each strip = 3 axes)."""
+    """Good-only or bad-only figure: ``outer_ncol`` case strips per row. No suptitle.
+
+    ``show_text_col=False`` renders MRI-only panels (compact, suitable for multi-column layouts).
+    """
     n = len(cases_order)
     if n == 0:
         print(f"Skipping empty tile grid: {out_png.name}", flush=True)
         return
 
-    shapes = _dry_run_case_shapes(cases_order, poset, stretch_subject=stretch_subject)
+    if precomputed_preps is not None:
+        if len(precomputed_preps) != len(cases_order):
+            raise ValueError("precomputed_preps length must match cases_order")
+        preps = precomputed_preps
+    else:
+        preps = precompute_row_preps(cases_order, poset)
+    shapes = _coronal_shapes_from_preps(preps)
     cor_h = max(s[0] for s in shapes)
     cor_w = max(s[1] for s in shapes)
-    width_ratios_inner = [cor_w, cor_w, int(FIG_TEXT_COL_WIDTH_MULT * cor_w)]
+    if show_text_col:
+        width_ratios_inner = [cor_w, int(text_col_width_mult * cor_w)]
+        inner_ncols = 2
+    else:
+        width_ratios_inner = [cor_w]
+        inner_ncols = 1
     cell_w = sum(width_ratios_inner)
     ncol = max(1, outer_ncol)
     nrow = (n + ncol - 1) // ncol
     scale = FIG_LAYOUT_SCALE * SPLIT_FIG_SCALE_MULT
     fig_w = scale * cell_w * ncol
-    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * nrow
+    fig_h = scale * (FIG_ROW_HEIGHT_FACTOR * cor_h) * FIG_PER_ROW_HEIGHT_MULT * nrow
 
     fig = plt.figure(figsize=(fig_w, fig_h))
-    outer = mgs.GridSpec(nrow, ncol, figure=fig, hspace=SPLIT_FIG_HSPACE, wspace=0.12)
+    outer = mgs.GridSpec(nrow, ncol, figure=fig, hspace=SPLIT_FIG_HSPACE, wspace=0.02)
+    first_title_axes: Optional[List] = None
     for i in range(n):
         r, c = divmod(i, ncol)
         inner = mgs.GridSpecFromSubplotSpec(
             1,
-            3,
+            inner_ncols,
             subplot_spec=outer[r, c],
             wspace=0.04,
             width_ratios=width_ratios_inner,
         )
         ax0 = fig.add_subplot(inner[0, 0])
-        ax1 = fig.add_subplot(inner[0, 1])
-        ax2 = fig.add_subplot(inner[0, 2])
+        axes_row = [ax0]
+        if show_text_col:
+            ax1 = fig.add_subplot(inner[0, 1])
+            axes_row.append(ax1)
+        if first_title_axes is None:
+            first_title_axes = [ax0]
         case, pref_tp, lab = cases_order[i]
-        visualize_case_row(
-            np.array([ax0, ax1, ax2]),
-            case,
-            poset,
-            prefer_tp_event=pref_tp,
-            label=lab,
+        draw_case_row_from_prep(
+            np.array(axes_row),
+            preps[i],
+            lab,
             stretch_subject=stretch_subject,
+            show_text_col=show_text_col,
         )
 
-    fig.suptitle(suptitle, fontsize=FIG_TEXT_FONTSIZE, y=1.095)
-    fig.legend(
-        handles=_overlay_legend_patches(),
-        loc="upper center",
-        ncol=2,
-        fontsize=FIG_TEXT_FONTSIZE,
-        frameon=True,
-        bbox_to_anchor=(0.5, 1.005),
-    )
-    fig.tight_layout(rect=[0, 0.05, 1, 0.85])
+    fig.tight_layout(rect=[0, 0.05, 1, FIG_TIGHT_RECT_TOP_TILE])
+    assert first_title_axes is not None
+    _add_overlay_legend_above_titles(fig, first_title_axes)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
@@ -1216,51 +1436,122 @@ def main() -> None:
     tag = "" if subject == FOCUS_SUBJECT else f"_{subject}"
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    clear_volume_bundle_cache()
     df = load_merged_or_partials(EVAL_CM4_T100)
     poset = load_poset_from_json(str(POSET_PATH))
 
-    cases = pick_cases_s0175_focus(df, subject=subject)
-    render_good_bad_grid(
-        cases,
-        poset,
-        out_png=OUT_DIR / f"cm4_real_good_bad_examples{tag}.png",
-        out_md=OUT_DIR / f"cm4_real_case_details{tag}.md",
-        suptitle=(
-            f"Subject {subject} — good: d≤{GOOD_D_MAX:g}, ΔDice>0 (largest removals first); "
-            f"bad: d≤{BAD_D_MAX:g}, ΔDice<0\n"
-            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
-        ),
-        md_header=(
-            f"# Real cleaning cases — subject {subject} (coronal; SI axis 2× screen stretch)\n\n"
-            f"Good rows: d≤{GOOD_D_MAX:g}, ΔDice>0, ranked by largest `vox_removed_pc` "
-            f"(up to {MAX_CASES_PER_SIDE}; editorial rank skip when enough candidates). "
-            f"Bad rows: d≤{BAD_D_MAX:g}, ΔDice<0, same rule (up to {MAX_CASES_PER_SIDE})."
-        ),
-        stretch_subject=subject,
+    use_f1 = "delta_f1" in df.columns
+    m_pos = "ΔF1>0" if use_f1 else "ΔDice>0"
+    m_neg = "ΔF1<0" if use_f1 else "ΔDice<0"
+    pool_note = (
+        "ΔF1 from eval CSV when present; figure panels recompute F1 from shown masks."
+        if use_f1
+        else "Good/bad pools use ΔDice (CSV has no delta_f1 — re-run evaluate_cleaning_methods)."
     )
 
-    goods = [t for t in cases if not t[1]]
-    bads = [t for t in cases if t[1]]
+    SECOND_SUBJECT = "s0167"
+    EXTRA_SUBJECT_A = "s0250"   # stomach examples
+    EXTRA_SUBJECT_B = "s0186"   # gluteus_medius examples
+    subjects_for_tiles = [subject, SECOND_SUBJECT] if subject != SECOND_SUBJECT else [subject]
+    extra_subjects = [EXTRA_SUBJECT_A, EXTRA_SUBJECT_B]
+
+    # Collect safe (validated) cases + preps for both subjects
+    goods_by_subj: Dict[str, Tuple[List, List]] = {}
+    bads_by_subj: Dict[str, Tuple[List, List]] = {}
+
+    for subj in subjects_for_tiles + extra_subjects:
+        subj_tag = "" if subj == FOCUS_SUBJECT else f"_{subj}"
+        extra_kw = {"max_bad": 2} if subj in extra_subjects else {}
+        cases_raw = pick_cases_s0175_focus(df, subject=subj, **extra_kw)
+        cases_subj, row_preps_subj = precompute_row_preps_safe(cases_raw, poset)
+        prep_by_key_subj = {
+            _prep_lookup_key(case, pref): prep
+            for (case, pref, _), prep in zip(cases_subj, row_preps_subj)
+        }
+        render_good_bad_grid(
+            cases_subj,
+            poset,
+            out_md=OUT_DIR / f"cm4_real_case_details{subj_tag}.md",
+            md_header=(
+                f"# Real cleaning cases — subject {subj} (coronal; SI axis 2× screen stretch)\n\n"
+                f"Good rows: d≤{GOOD_D_MAX:g}, {m_pos}, ranked by largest `vox_removed_pc` "
+                f"(up to {MAX_CASES_PER_SIDE}; editorial rank skip when enough candidates). "
+                f"Bad rows: d≤{BAD_D_MAX:g}, {m_neg}, same rule (up to {MAX_CASES_PER_SIDE}). "
+                f"{pool_note}\n\n"
+                "Figure: one coronal MRI slice; mask overlays are **A/P silhouettes** on LR×SI. "
+                + (
+                    f"For this subject (`{subj}`), the SI axis is drawn **2× taller** on screen than LR. "
+                    if subj == FOCUS_SUBJECT
+                    else f"For this subject (`{subj}`), LR and SI use **equal** on-screen pixel scale. "
+                )
+                + "**Trusted anchor (purple)** = constraint partner; "
+                "**red** = removed TP, **green** = removed FP."
+            ),
+            stretch_subject=subj,
+            precomputed_preps=row_preps_subj,
+        )
+        goods_subj = [t for t in cases_subj if not t[1]]
+        bads_subj = [t for t in cases_subj if t[1]]
+        goods_preps_subj = [prep_by_key_subj[_prep_lookup_key(c, p)] for c, p, _ in goods_subj]
+        bads_preps_subj = [prep_by_key_subj[_prep_lookup_key(c, p)] for c, p, _ in bads_subj]
+        goods_by_subj[subj] = (goods_subj[:5], goods_preps_subj[:5])
+        bads_by_subj[subj] = (bads_subj[:4], bads_preps_subj[:4])
+
+    # Combined two-column figures: subjects interleaved so col 0 = subj_left, col 1 = subj_right.
+    # Interleave: [L0, R0, L1, R1, ...] with ncol=2 maps to left/right columns.
+    def _interleave(
+        left: Tuple[List, List], right: Tuple[List, List]
+    ) -> Tuple[List, List]:
+        lc, lp = left
+        rc, rp = right
+        combined_cases: List = []
+        combined_preps: List = []
+        for i in range(max(len(lc), len(rc))):
+            if i < len(lc):
+                combined_cases.append(lc[i])
+                combined_preps.append(lp[i])
+            if i < len(rc):
+                combined_cases.append(rc[i])
+                combined_preps.append(rp[i])
+        return combined_cases, combined_preps
+
+    subj_left, subj_right = subjects_for_tiles[0], subjects_for_tiles[-1]
+    good_cases_comb, good_preps_comb = _interleave(goods_by_subj[subj_left], goods_by_subj[subj_right])
+    bad_cases_comb, bad_preps_comb = _interleave(bads_by_subj[subj_left], bads_by_subj[subj_right])
+
     render_case_tile_grid(
-        goods,
+        good_cases_comb,
         poset,
-        out_png=OUT_DIR / f"cm4_real_good_examples{tag}.png",
-        suptitle=(
-            f"Subject {subject} — good cases only (d≤{GOOD_D_MAX:g}, ΔDice>0)\n"
-            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
-        ),
-        stretch_subject=subject,
+        out_png=OUT_DIR / "cm4_real_good_examples.png",
+        outer_ncol=2,
+        precomputed_preps=good_preps_comb,
+        show_text_col=True,
+        text_col_width_mult=1.6,
     )
     render_case_tile_grid(
-        bads,
+        bad_cases_comb,
         poset,
-        out_png=OUT_DIR / f"cm4_real_bad_examples{tag}.png",
-        suptitle=(
-            f"Subject {subject} — bad cases only (d≤{BAD_D_MAX:g}, ΔDice<0)\n"
-            "MRI = one coronal slice · masks = A/P projection (LR×SI); SI drawn 2× taller on screen"
-        ),
-        stretch_subject=subject,
+        out_png=OUT_DIR / "cm4_real_bad_examples.png",
+        outer_ncol=2,
+        precomputed_preps=bad_preps_comb,
+        show_text_col=True,
+        text_col_width_mult=1.6,
     )
+
+    # Extra good-cases figure: s0250 (stomach) + s0186 (gluteus_medius), top 5 each
+    extra_good_cases, extra_good_preps = _interleave(
+        goods_by_subj[EXTRA_SUBJECT_A], goods_by_subj[EXTRA_SUBJECT_B]
+    )
+    if extra_good_cases:
+        render_case_tile_grid(
+            extra_good_cases,
+            poset,
+            out_png=OUT_DIR / "cm4_real_good_examples_extra.png",
+            outer_ncol=2,
+            precomputed_preps=extra_good_preps,
+            show_text_col=True,
+            text_col_width_mult=1.6,
+        )
 
 
 if __name__ == "__main__":
