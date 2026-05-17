@@ -48,21 +48,20 @@ for dr in range(-RADIUS, RADIUS + 1):
 # ---------------------------------------------------------------------------
 # Build synthetic mask  (two separate blobs, no connection)
 # ---------------------------------------------------------------------------
-H, W = 34, 56
+H, W = 72, 112
 mask = np.zeros((H, W), dtype=bool)
 
-# Large blob — wide enough to survive erosion by radius 4
-mask[4:30, 3:30] = True
-# round corners
-for r, c in [(4,3),(4,4),(4,5),(5,3),(5,4),(6,3),
-             (4,29),(4,28),(4,27),(5,29),(5,28),(6,29),
-             (29,3),(29,4),(29,5),(28,3),(28,4),(27,3),
-             (29,29),(29,28),(29,27),(28,29),(28,28),(27,29)]:
-    if 0 <= r < H and 0 <= c < W:
-        mask[r, c] = False
+# Heart blob — implicit equation (x²+y²−1)³ − x²y³ ≤ 0
+# Scaled so the heart is ~40 px wide; thick enough to survive radius-4 erosion
+cy, cx = 38, 40
+s = 19.0
+rows, cols = np.mgrid[0:H, 0:W]
+x = (cols - cx) / s
+y = -(rows - cy) / s   # flip so y-up gives standard upward-pointing heart
+mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
 # Small blob — 7×7, fully erased by a radius-4 erosion (center can't fit SE)
-mask[6:13, 38:45] = True
+mask[18:25, 80:87] = True
 
 # ---------------------------------------------------------------------------
 # Erosion and dilation
