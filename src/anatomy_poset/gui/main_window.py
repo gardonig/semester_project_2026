@@ -443,7 +443,8 @@ class MainWindow(QMainWindow):
             self._autosave_path = Path(open_path_str)
             try:
                 poset = load_poset_from_json(str(self._autosave_path))
-                structures = poset.structures
+                # Keep structures from the table (preserves any CoM edits);
+                # only restore the previously answered matrices from the file.
                 self._matrix_vertical = poset.matrix_vertical
                 self._matrix_mediolateral = poset.matrix_mediolateral
                 self._matrix_anteroposterior = poset.matrix_anteroposterior
