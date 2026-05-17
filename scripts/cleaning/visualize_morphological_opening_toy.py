@@ -70,42 +70,37 @@ eroded = binary_erosion(mask, structure=se)
 opened = binary_dilation(eroded, structure=se)
 
 # ---------------------------------------------------------------------------
-# Colours
+# Identify the two components
 # ---------------------------------------------------------------------------
-BLUE      = np.array([0.20, 0.47, 0.87, 1.0])   # surviving structure
-BLUE_DIM  = np.array([0.55, 0.75, 0.97, 1.0])   # eroded (shrunk) large blob
-RED       = np.array([0.86, 0.20, 0.18, 1.0])   # small blob (doomed)
-GREY_LOST = np.array([0.75, 0.75, 0.75, 1.0])   # pixels removed by erosion
-
-def _img(large: np.ndarray, small: np.ndarray,
-         large_color=BLUE, small_color=RED) -> np.ndarray:
-    img = np.ones((H, W, 4))
-    img[large] = large_color
-    img[small] = small_color
-    return img
-
-# Panel 1 — original
-large_orig = mask & ~mask[6:11, 36:41].any()   # just use component labels
 labeled_orig, _ = label(mask)
 comp1 = labeled_orig == 1
 comp2 = labeled_orig == 2
-# ensure comp1 is always the large one
 if comp1.sum() < comp2.sum():
-    comp1, comp2 = comp2, comp1
+    comp1, comp2 = comp2, comp1   # comp1 = large, comp2 = small
 
-img1 = _img(comp1, comp2)
+# ---------------------------------------------------------------------------
+# Colours — single colour for the mask, grey for eroded-away pixels
+# ---------------------------------------------------------------------------
+BLUE      = np.array([0.20, 0.47, 0.87, 1.0])
+GREY_LOST = np.array([0.78, 0.78, 0.78, 1.0])
 
-# Panel 2 — after erosion: large shrunk, small gone
-img2 = np.ones((H, W, 4))
-lost_from_large = comp1 & ~eroded        # boundary pixels removed
-img2[eroded] = BLUE_DIM                  # surviving core
-img2[lost_from_large] = GREY_LOST        # eroded away
-# small blob: show as red ghost (original position) to make it clear it vanished
-img2[comp2] = RED
+BG = np.ones((H, W, 4))   # white background
 
-# Panel 3 — after dilation (= after opening): large restored, small still gone
-img3 = np.ones((H, W, 4))
-img3[opened] = BLUE                      # restored large blob = LCC
+def _make(fg: np.ndarray, faded: np.ndarray | None = None) -> np.ndarray:
+    img = BG.copy()
+    if faded is not None:
+        img[faded] = GREY_LOST
+    img[fg] = BLUE
+    return img
+
+# Panel 1: both blobs, same colour
+img1 = _make(mask)
+
+# Panel 2: after erosion — small gone, large shrunk; eroded boundary shown grey
+img2 = _make(eroded, faded=(mask & ~eroded))
+
+# Panel 3: after dilation (opening) — only LCC survives
+img3 = _make(opened)
 
 # ---------------------------------------------------------------------------
 # Plot
@@ -114,12 +109,12 @@ fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
 fig.patch.set_facecolor("#f7f7f7")
 
 panels = [
-    (img1, "1 — Input",
-     "Large structure + small structure"),
+    (img1, "1 — Input mask",
+     "Both structures present"),
     (img2, "2 — After erosion",
-     "Small blob erased  |  large blob shrinks"),
+     "Small structure erased  |  large structure shrinks"),
     (img3, "3 — After dilation  →  LCC",
-     "Large blob restored  |  small blob gone permanently"),
+     "Large structure restored  |  small structure gone"),
 ]
 
 for ax, (img, title, sub) in zip(axes, panels):
@@ -132,12 +127,10 @@ for ax, (img, title, sub) in zip(axes, panels):
         spine.set_edgecolor("#cccccc")
 
 legend_handles = [
-    mpatches.Patch(color=BLUE,      label="Large structure / LCC (kept)"),
-    mpatches.Patch(color=RED,       label="Small structure (erased)"),
+    mpatches.Patch(color=BLUE,      label="Segmentation mask"),
     mpatches.Patch(color=GREY_LOST, label="Pixels removed by erosion"),
-    mpatches.Patch(color=BLUE_DIM,  label="Eroded core (before dilation)"),
 ]
-fig.legend(handles=legend_handles, loc="lower center", ncol=4,
+fig.legend(handles=legend_handles, loc="lower center", ncol=2,
            fontsize=9, framealpha=0.9, bbox_to_anchor=(0.5, -0.04))
 
 fig.tight_layout(rect=[0, 0.1, 1, 1])
