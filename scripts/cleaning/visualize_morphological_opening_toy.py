@@ -111,9 +111,10 @@ def _rgba_image(fg: np.ndarray, lcc_mask: np.ndarray,
 non_lcc_before = mask & ~lcc_before
 img_before = _rgba_image(mask, lcc_before, non_lcc=non_lcc_before)
 
-# Panel 2: opened mask, LCC highlighted; pixels lost shown in orange
-lost_pixels = mask & ~opened
-img_after  = _rgba_image(opened, lcc_after, lost=lost_pixels)
+# Panel 2: opened mask, LCC highlighted; satellite remnant red; lost boundary orange
+lost_pixels    = mask & ~opened
+non_lcc_after  = opened & ~lcc_after
+img_after      = _rgba_image(opened, lcc_after, non_lcc=non_lcc_after, lost=lost_pixels)
 
 # ---------------------------------------------------------------------------
 # Plot
