@@ -38,7 +38,7 @@ OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Structuring element — disk, radius 4
 # ---------------------------------------------------------------------------
-RADIUS = 5
+RADIUS = 8
 se = np.zeros((2 * RADIUS + 1, 2 * RADIUS + 1), dtype=bool)
 for dr in range(-RADIUS, RADIUS + 1):
     for dc in range(-RADIUS, RADIUS + 1):
@@ -48,24 +48,22 @@ for dr in range(-RADIUS, RADIUS + 1):
 # ---------------------------------------------------------------------------
 # Build synthetic mask  (two separate blobs, no connection)
 # ---------------------------------------------------------------------------
-H, W = 72, 112
+H, W = 120, 190
 mask = np.zeros((H, W), dtype=bool)
 
 # Heart blob — implicit equation (x²+y²−1)³ − x²y³ ≤ 0
-# Scaled so the heart is ~40 px wide; thick enough to survive radius-4 erosion
-cy, cx = 38, 40
-s = 19.0
+cy, cx = 62, 62
+s = 28.0
 rows, cols = np.mgrid[0:H, 0:W]
 x = (cols - cx) / s
 y = -(rows - cy) / s   # flip so y-up gives standard upward-pointing heart
 mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
-# Small circular blob — radius 4, fully erased by radius-5 erosion
-# (SE of radius 5 can't fit inside a radius-4 disk)
-_br, _bc = 30, 86
-for _dr in range(-4, 5):
-    for _dc in range(-4, 5):
-        if _dr * _dr + _dc * _dc <= 16:   # radius = 4
+# Small circular blob — radius 7, fully erased by radius-8 erosion
+_br, _bc = 50, 145
+for _dr in range(-7, 8):
+    for _dc in range(-7, 8):
+        if _dr * _dr + _dc * _dc <= 49:   # radius = 7
             if 0 <= _br + _dr < H and 0 <= _bc + _dc < W:
                 mask[_br + _dr, _bc + _dc] = True
 
