@@ -1,14 +1,14 @@
 """
-Toy figure illustrating morphological opening on a 2-D binary mask.
+Toy 3-panel figure illustrating morphological opening on two separate blobs.
 
-The input has two connected blobs joined by a thin neck:
-  - a large main body (the true structure)
-  - a small satellite blob connected by a neck thinner than the structuring element
+Two disconnected structures from the start:
+  - a large blob (survives erosion)
+  - a small blob (fully erased by erosion — too small for the structuring element)
 
-After opening (erosion then dilation):
-  - the thin neck is severed → two disconnected components
-  - LCC selection keeps the large body and discards the satellite
-  - the LCC itself is slightly smaller (opening rounds its boundary)
+Sequence:
+  1. Original mask  — both blobs present
+  2. After erosion  — small blob gone, large blob shrunk
+  3. After dilation — large blob restored (LCC); small blob never comes back
 
 Output:
   results/cm4_visuals/morphological_opening_toy.png
@@ -36,118 +36,111 @@ OUT_PATH = PROJECT_ROOT / "results" / "cm4_visuals" / "morphological_opening_toy
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Build synthetic mask
+# Structuring element — disk, radius 4
 # ---------------------------------------------------------------------------
-H, W = 28, 44
+RADIUS = 4
+se = np.zeros((2 * RADIUS + 1, 2 * RADIUS + 1), dtype=bool)
+for dr in range(-RADIUS, RADIUS + 1):
+    for dc in range(-RADIUS, RADIUS + 1):
+        if dr * dr + dc * dc <= RADIUS * RADIUS:
+            se[dr + RADIUS, dc + RADIUS] = True
+
+# ---------------------------------------------------------------------------
+# Build synthetic mask  (two separate blobs, no connection)
+# ---------------------------------------------------------------------------
+H, W = 34, 52
 mask = np.zeros((H, W), dtype=bool)
 
-# Large main body  (rows 4-23, cols 2-28)
-mask[4:24, 2:29] = True
-
-# Thin neck connecting main body to satellite (1 px wide — narrower than SE)
-mask[13:14, 29:35] = True
-
-# Small satellite blob (rows 10-17, cols 35-42)
-mask[10:18, 35:43] = True
-
-# Round off corners a bit for a more natural look
-for r, c in [(4, 2), (4, 3), (5, 2), (23, 2), (23, 3), (22, 2),
-             (4, 27), (4, 28), (5, 28), (23, 27), (23, 28), (22, 28)]:
+# Large blob — wide enough to survive erosion by radius 4
+mask[4:30, 2:30] = True
+# round corners
+for r, c in [(4,2),(4,3),(4,4),(5,2),(5,3),(6,2),
+             (4,28),(4,27),(4,26),(5,28),(5,27),(6,28),
+             (29,2),(29,3),(29,4),(28,2),(28,3),(27,2),
+             (29,28),(29,27),(29,26),(28,28),(28,27),(27,28)]:
     mask[r, c] = False
 
-# ---------------------------------------------------------------------------
-# Morphological opening  (disk-like SE, radius 3)
-# ---------------------------------------------------------------------------
-radius = 3
-se = np.zeros((2 * radius + 1, 2 * radius + 1), dtype=bool)
-for dr in range(-radius, radius + 1):
-    for dc in range(-radius, radius + 1):
-        if dr * dr + dc * dc <= radius * radius:
-            se[dr + radius, dc + radius] = True
-
-eroded  = binary_erosion(mask, structure=se)
-opened  = binary_dilation(eroded, structure=se)
+# Small blob — 5×5, fully erased by a radius-4 erosion
+mask[6:11, 36:41] = True
 
 # ---------------------------------------------------------------------------
-# LCC before and after
+# Erosion and dilation
 # ---------------------------------------------------------------------------
-def lcc(m: np.ndarray) -> np.ndarray:
-    labeled, n = label(m)
-    if n == 0:
-        return np.zeros_like(m)
-    sizes = [(labeled == k).sum() for k in range(1, n + 1)]
-    best = int(np.argmax(sizes)) + 1
-    return labeled == best
-
-lcc_before = lcc(mask)
-lcc_after  = lcc(opened)
+eroded = binary_erosion(mask, structure=se)
+opened = binary_dilation(eroded, structure=se)
 
 # ---------------------------------------------------------------------------
-# Colour maps  (RGBA, float 0-1)
+# Colours
 # ---------------------------------------------------------------------------
-BLUE_FULL   = np.array([0.33, 0.60, 0.93, 1.0])   # main mask fill
-BLUE_LCC    = np.array([0.10, 0.36, 0.78, 1.0])   # LCC highlight
-RED_SAT     = np.array([0.88, 0.28, 0.25, 1.0])   # satellite / lost part
-ORANGE_LOST = np.array([0.95, 0.60, 0.15, 1.0])   # eroded-away boundary
+BLUE      = np.array([0.20, 0.47, 0.87, 1.0])   # surviving structure
+BLUE_DIM  = np.array([0.55, 0.75, 0.97, 1.0])   # eroded (shrunk) large blob
+RED       = np.array([0.86, 0.20, 0.18, 1.0])   # small blob (doomed)
+GREY_LOST = np.array([0.75, 0.75, 0.75, 1.0])   # pixels removed by erosion
 
-def _rgba_image(fg: np.ndarray, lcc_mask: np.ndarray,
-                non_lcc: np.ndarray | None = None,
-                lost: np.ndarray | None = None) -> np.ndarray:
-    """Build an RGBA image from boolean layers."""
-    img = np.ones((H, W, 4))   # white background
-    # foreground fill
-    img[fg] = BLUE_FULL
-    # LCC highlight on top
-    img[lcc_mask] = BLUE_LCC
-    # non-LCC components
-    if non_lcc is not None:
-        img[non_lcc] = RED_SAT
-    # pixels lost by opening
-    if lost is not None:
-        img[lost] = ORANGE_LOST
+def _img(large: np.ndarray, small: np.ndarray,
+         large_color=BLUE, small_color=RED) -> np.ndarray:
+    img = np.ones((H, W, 4))
+    img[large] = large_color
+    img[small] = small_color
     return img
 
-# Panel 1: raw mask, LCC highlighted, satellite red
-non_lcc_before = mask & ~lcc_before
-img_before = _rgba_image(mask, lcc_before, non_lcc=non_lcc_before)
+# Panel 1 — original
+large_orig = mask & ~mask[6:11, 36:41].any()   # just use component labels
+labeled_orig, _ = label(mask)
+comp1 = labeled_orig == 1
+comp2 = labeled_orig == 2
+# ensure comp1 is always the large one
+if comp1.sum() < comp2.sum():
+    comp1, comp2 = comp2, comp1
 
-# Panel 2: opened mask, LCC highlighted; satellite remnant red; lost boundary orange
-lost_pixels    = mask & ~opened
-non_lcc_after  = opened & ~lcc_after
-img_after      = _rgba_image(opened, lcc_after, non_lcc=non_lcc_after, lost=lost_pixels)
+img1 = _img(comp1, comp2)
+
+# Panel 2 — after erosion: large shrunk, small gone
+img2 = np.ones((H, W, 4))
+lost_from_large = comp1 & ~eroded        # boundary pixels removed
+img2[eroded] = BLUE_DIM                  # surviving core
+img2[lost_from_large] = GREY_LOST        # eroded away
+# small blob: show as red ghost (original position) to make it clear it vanished
+img2[comp2] = RED
+
+# Panel 3 — after dilation (= after opening): large restored, small still gone
+img3 = np.ones((H, W, 4))
+img3[opened] = BLUE                      # restored large blob = LCC
 
 # ---------------------------------------------------------------------------
 # Plot
 # ---------------------------------------------------------------------------
-fig, axes = plt.subplots(1, 2, figsize=(10, 3.6))
-fig.patch.set_facecolor("#f8f8f8")
+fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+fig.patch.set_facecolor("#f7f7f7")
 
-for ax, img, title, subtitle in [
-    (axes[0], img_before,
-     "Input mask",
-     "LCC = large body  |  satellite connected via thin neck"),
-    (axes[1], img_after,
-     "After morphological opening  +  LCC selection",
-     "Neck severed → satellite discarded  |  LCC boundary shrinks"),
-]:
+panels = [
+    (img1, "1 — Input",
+     "Large structure + small structure"),
+    (img2, "2 — After erosion",
+     "Small blob erased  |  large blob shrinks"),
+    (img3, "3 — After dilation  →  LCC",
+     "Large blob restored  |  small blob gone permanently"),
+]
+
+for ax, (img, title, sub) in zip(axes, panels):
     ax.imshow(img, origin="upper", interpolation="nearest")
-    ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
-    ax.set_xlabel(subtitle, fontsize=8.5, color="#444444")
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=5)
+    ax.set_xlabel(sub, fontsize=8.5, color="#444")
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_edgecolor("#cccccc")
 
-# Shared legend
 legend_handles = [
-    mpatches.Patch(color=BLUE_LCC,    label="LCC (kept)"),
-    mpatches.Patch(color=RED_SAT,     label="Non-LCC component (discarded)"),
-    mpatches.Patch(color=ORANGE_LOST, label="Pixels removed by opening"),
+    mpatches.Patch(color=BLUE,      label="Large structure / LCC (kept)"),
+    mpatches.Patch(color=RED,       label="Small structure (erased)"),
+    mpatches.Patch(color=GREY_LOST, label="Pixels removed by erosion"),
+    mpatches.Patch(color=BLUE_DIM,  label="Eroded core (before dilation)"),
 ]
-fig.legend(handles=legend_handles, loc="lower center", ncol=3,
+fig.legend(handles=legend_handles, loc="lower center", ncol=4,
            fontsize=9, framealpha=0.9, bbox_to_anchor=(0.5, -0.04))
 
-fig.tight_layout(rect=[0, 0.08, 1, 1])
+fig.tight_layout(rect=[0, 0.1, 1, 1])
 fig.savefig(OUT_PATH, dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
 plt.close(fig)
 print(f"Saved → {OUT_PATH}")
