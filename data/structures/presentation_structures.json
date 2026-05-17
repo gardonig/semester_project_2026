@@ -1,0 +1,16 @@
+{
+  "structures": [
+    {"name": "Brain",          "com_vertical":  201.51, "com_lateral":  50.69, "com_anteroposterior":  39.00},
+    {"name": "Left Humerus",   "com_vertical":   77.46, "com_lateral":  94.56, "com_anteroposterior":  41.88},
+    {"name": "Right Humerus",  "com_vertical":   77.91, "com_lateral":   5.84, "com_anteroposterior":  43.93},
+    {"name": "Spine",          "com_vertical":   50.88, "com_lateral":  49.47, "com_anteroposterior":  34.10},
+    {"name": "Stomach",        "com_vertical":   51.47, "com_lateral":  62.73, "com_anteroposterior":  60.57},
+    {"name": "Left Kidney",    "com_vertical":   32.93, "com_lateral":  70.00, "com_anteroposterior":  37.73},
+    {"name": "Right Kidney",   "com_vertical":   31.44, "com_lateral":  30.94, "com_anteroposterior":  39.21},
+    {"name": "Pelvis",         "com_vertical":  -45.25, "com_lateral":  49.25, "com_anteroposterior":  31.69},
+    {"name": "Left Femur",     "com_vertical": -234.48, "com_lateral":  77.59, "com_anteroposterior":  51.73},
+    {"name": "Right Femur",    "com_vertical": -222.56, "com_lateral":  21.66, "com_anteroposterior":  52.46},
+    {"name": "Left Fibula",    "com_vertical": -340.00, "com_lateral":  78.00, "com_anteroposterior":  50.00},
+    {"name": "Right Fibula",   "com_vertical": -340.00, "com_lateral":  22.00, "com_anteroposterior":  50.00}
+  ]
+}

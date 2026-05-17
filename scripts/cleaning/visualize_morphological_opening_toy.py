@@ -116,7 +116,7 @@ fig.suptitle("Morphological Opening", fontsize=18, fontweight="bold", y=1.02)
 panels = [
     (img1, "Input"),
     (img2, "Eroded"),
-    (img3, "Opened"),
+    (img3, "Dilated (Opened)"),
 ]
 
 for ax, (img, title) in zip(axes, panels):
