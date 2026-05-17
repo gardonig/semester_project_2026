@@ -60,8 +60,8 @@ x = (cols - cx) / s
 y = -(rows - cy) / s   # flip so y-up gives standard upward-pointing heart
 mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
-# Small blob — 7×7, fully erased by a radius-4 erosion (center can't fit SE)
-mask[18:25, 80:87] = True
+# Small blob — 4×4, fully erased by a radius-4 erosion (too small for SE)
+mask[18:22, 80:84] = True
 
 # ---------------------------------------------------------------------------
 # Erosion and dilation
