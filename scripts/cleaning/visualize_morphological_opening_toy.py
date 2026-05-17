@@ -48,7 +48,7 @@ for dr in range(-RADIUS, RADIUS + 1):
 # ---------------------------------------------------------------------------
 # Build synthetic mask  (two separate blobs, no connection)
 # ---------------------------------------------------------------------------
-H, W = 34, 52
+H, W = 34, 46
 mask = np.zeros((H, W), dtype=bool)
 
 # Large blob — wide enough to survive erosion by radius 4
@@ -61,8 +61,8 @@ for r, c in [(4,2),(4,3),(4,4),(5,2),(5,3),(6,2),
     if 0 <= r < H and 0 <= c < W:
         mask[r, c] = False
 
-# Small blob — 5×5, fully erased by a radius-4 erosion
-mask[6:11, 36:41] = True
+# Small blob — 3×3, fully erased by a radius-4 erosion
+mask[7:10, 36:39] = True
 
 # ---------------------------------------------------------------------------
 # Erosion and dilation
