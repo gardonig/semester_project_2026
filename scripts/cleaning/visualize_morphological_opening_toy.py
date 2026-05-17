@@ -60,12 +60,12 @@ x = (cols - cx) / s
 y = -(rows - cy) / s   # flip so y-up gives standard upward-pointing heart
 mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
-# Small circular blob — radius 1.9 px (9 pixels), fully erased by radius-2 erosion
-# (SE of radius 2 cannot fit inside: nearest boundary is only ~2 px from center)
-_br, _bc = 20, 82
-for _dr in range(-2, 3):
-    for _dc in range(-2, 3):
-        if _dr * _dr + _dc * _dc <= 3.61:   # radius ≈ 1.9
+# Small circular blob — radius 3, fully erased by radius-4 erosion
+# (SE of radius 4 can't fit inside a radius-3 disk)
+_br, _bc = 26, 85
+for _dr in range(-3, 4):
+    for _dc in range(-3, 4):
+        if _dr * _dr + _dc * _dc <= 9:   # radius = 3
             if 0 <= _br + _dr < H and 0 <= _bc + _dc < W:
                 mask[_br + _dr, _bc + _dc] = True
 
