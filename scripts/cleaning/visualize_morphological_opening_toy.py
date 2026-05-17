@@ -61,8 +61,8 @@ for r, c in [(4,3),(4,4),(4,5),(5,3),(5,4),(6,3),
     if 0 <= r < H and 0 <= c < W:
         mask[r, c] = False
 
-# Small blob — 3×3, fully erased by a radius-4 erosion
-mask[7:10, 36:39] = True
+# Small blob — 2×2, fully erased by a radius-4 erosion
+mask[7:9, 38:40] = True
 
 # ---------------------------------------------------------------------------
 # Erosion and dilation
