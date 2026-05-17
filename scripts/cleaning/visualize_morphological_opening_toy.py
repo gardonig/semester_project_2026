@@ -38,7 +38,7 @@ OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Structuring element — disk, radius 4
 # ---------------------------------------------------------------------------
-RADIUS = 2
+RADIUS = 4
 se = np.zeros((2 * RADIUS + 1, 2 * RADIUS + 1), dtype=bool)
 for dr in range(-RADIUS, RADIUS + 1):
     for dc in range(-RADIUS, RADIUS + 1):
