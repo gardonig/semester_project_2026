@@ -52,13 +52,14 @@ H, W = 34, 52
 mask = np.zeros((H, W), dtype=bool)
 
 # Large blob — wide enough to survive erosion by radius 4
-mask[4:30, 2:30] = True
+mask[4:30, 2:29] = True
 # round corners
 for r, c in [(4,2),(4,3),(4,4),(5,2),(5,3),(6,2),
              (4,28),(4,27),(4,26),(5,28),(5,27),(6,28),
              (29,2),(29,3),(29,4),(28,2),(28,3),(27,2),
              (29,28),(29,27),(29,26),(28,28),(28,27),(27,28)]:
-    mask[r, c] = False
+    if 0 <= r < H and 0 <= c < W:
+        mask[r, c] = False
 
 # Small blob — 5×5, fully erased by a radius-4 erosion
 mask[6:11, 36:41] = True
