@@ -106,13 +106,14 @@ img3 = _make(opened)
 # ---------------------------------------------------------------------------
 # Plot
 # ---------------------------------------------------------------------------
-fig, axes = plt.subplots(3, 1, figsize=(5, 11))
+fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
 fig.patch.set_facecolor("#f7f7f7")
+fig.suptitle("Morphological Opening", fontsize=18, fontweight="bold", y=1.02)
 
 panels = [
     (img1, "Input"),
-    (img2, "Erosion"),
-    (img3, "Opening  →  LCC"),
+    (img2, "Eroded"),
+    (img3, "Opened"),
 ]
 
 for ax, (img, title) in zip(axes, panels):
@@ -128,9 +129,9 @@ legend_handles = [
     mpatches.Patch(color=GREY_LOST, label="Eroded away"),
 ]
 fig.legend(handles=legend_handles, loc="lower center", ncol=2,
-           fontsize=13, framealpha=0.9, bbox_to_anchor=(0.5, 0.01))
+           fontsize=13, framealpha=0.9, bbox_to_anchor=(0.5, -0.04))
 
-fig.tight_layout(rect=[0, 0.06, 1, 1])
+fig.tight_layout(rect=[0, 0.08, 1, 1])
 fig.savefig(OUT_PATH, dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
 plt.close(fig)
 print(f"Saved → {OUT_PATH}")
