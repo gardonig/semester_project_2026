@@ -44,8 +44,8 @@ mask = np.zeros((H, W), dtype=bool)
 # Large main body  (rows 4-23, cols 2-28)
 mask[4:24, 2:29] = True
 
-# Thin neck connecting main body to satellite (2 px wide — narrower than SE)
-mask[13:15, 29:35] = True
+# Thin neck connecting main body to satellite (1 px wide — narrower than SE)
+mask[13:14, 29:35] = True
 
 # Small satellite blob (rows 10-17, cols 35-42)
 mask[10:18, 35:43] = True
