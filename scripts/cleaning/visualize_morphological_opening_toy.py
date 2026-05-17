@@ -48,11 +48,11 @@ for dr in range(-RADIUS, RADIUS + 1):
 # ---------------------------------------------------------------------------
 # Build synthetic mask  (two separate blobs, no connection)
 # ---------------------------------------------------------------------------
-H, W = 34, 46
+H, W = 34, 50
 mask = np.zeros((H, W), dtype=bool)
 
 # Large blob — wide enough to survive erosion by radius 4
-mask[4:30, 2:29] = True
+mask[4:30, 3:30] = True
 # round corners
 for r, c in [(4,2),(4,3),(4,4),(5,2),(5,3),(6,2),
              (4,28),(4,27),(4,26),(5,28),(5,27),(6,28),
