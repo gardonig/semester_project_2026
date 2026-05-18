@@ -74,9 +74,6 @@ img2 = _make(eroded, faded=(mask & ~eroded))
 # Panel 3: after dilation (opening) — only LCC survives
 img3 = _make(opened)
 
-# ---------------------------------------------------------------------------
-# Plot
-# ---------------------------------------------------------------------------
 fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
 fig.patch.set_facecolor("#f7f7f7")
 fig.suptitle("Morphological Opening", fontsize=18, fontweight="bold", y=1.02)
