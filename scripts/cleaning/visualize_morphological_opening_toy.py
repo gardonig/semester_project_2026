@@ -1,21 +1,4 @@
-"""
-Toy 3-panel figure illustrating morphological opening on two separate blobs.
-
-Two disconnected structures from the start:
-  - a large blob (survives erosion)
-  - a small blob (fully erased by erosion — too small for the structuring element)
-
-Sequence:
-  1. Original mask  — both blobs present
-  2. After erosion  — small blob gone, large blob shrunk
-  3. After dilation — large blob restored (LCC); small blob never comes back
-
-Output:
-  results/cm4_visuals/morphological_opening_toy.png
-
-Usage:
-  python scripts/cleaning/visualize_morphological_opening_toy.py
-"""
+"""3-panel toy figure: morphological opening removes the small blob, preserves the large one."""
 
 from __future__ import annotations
 
