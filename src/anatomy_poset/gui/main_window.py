@@ -173,13 +173,15 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
-        # Load structures from file: CLI arg, or default to the latest CoM/poset set
+        # Load structures from file: CLI arg, or default to presentation poset / CoM set
         load_path = self._input_path
         if load_path is None:
-            # Prefer the normalized cleaned CoM set if present, otherwise fall back.
+            presentation = OUTPUT_DIR / "tests" / "presentation_poset.json"
             normalized = INPUT_DIR / "CoM_cleaned_normalized_global_avg_xyz.json"
             cleaned = INPUT_DIR / "CoM_cleaned_global_avg_xyz.json"
-            if normalized.exists():
+            if presentation.exists():
+                load_path = str(presentation)
+            elif normalized.exists():
                 load_path = str(normalized)
             elif cleaned.exists():
                 load_path = str(cleaned)
