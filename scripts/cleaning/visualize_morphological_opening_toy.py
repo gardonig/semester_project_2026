@@ -32,7 +32,7 @@ cy, cx = 62, 62
 s = 28.0
 rows, cols = np.mgrid[0:H, 0:W]
 x = (cols - cx) / s
-y = -(rows - cy) / s   # flip so y-up gives standard upward-pointing heart
+y = -(rows - cy) / s
 mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
 # Small circular blob — radius 7, fully erased by radius-8 erosion
