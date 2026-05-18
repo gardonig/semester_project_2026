@@ -18,9 +18,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 OUT_PATH = PROJECT_ROOT / "results" / "cm4_visuals" / "morphological_opening_toy.png"
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Structuring element — disk, radius 4
-# ---------------------------------------------------------------------------
 RADIUS = 8
 se = np.zeros((2 * RADIUS + 1, 2 * RADIUS + 1), dtype=bool)
 for dr in range(-RADIUS, RADIUS + 1):
