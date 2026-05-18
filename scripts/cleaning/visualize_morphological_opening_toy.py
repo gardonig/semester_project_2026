@@ -49,7 +49,7 @@ labeled_orig, _ = label(mask)
 comp1 = labeled_orig == 1
 comp2 = labeled_orig == 2
 if comp1.sum() < comp2.sum():
-    comp1, comp2 = comp2, comp1   # comp1 = large, comp2 = small
+    comp1, comp2 = comp2, comp1
 
 BLUE      = np.array([0.20, 0.47, 0.87, 1.0])
 GREY_LOST = np.array([0.78, 0.78, 0.78, 1.0])
