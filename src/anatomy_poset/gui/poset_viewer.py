@@ -162,40 +162,18 @@ class HasseDiagramView(QGraphicsView):
 
         positions: Dict[int, QPointF] = {}
 
-        # For the vertical axis use com_vertical for y so incomparable structures
-        # at different anatomical heights are not collapsed onto the same level.
-        if axis == "vertical":
-            com_vals = [s.com_vertical for s in structures]
-            com_min, com_max = min(com_vals), max(com_vals)
-            com_range = com_max - com_min if com_max != com_min else 1.0
-            total_height = max(max_level, 1) * v_spacing
-            # Group nodes by level solely for x-spread; y comes from CoM.
-            for lvl in range(0, max_level + 1):
-                nodes_at_level = level_nodes.get(lvl, [])
-                if not nodes_at_level:
-                    continue
-                nodes_sorted = sorted(nodes_at_level)
-                count = len(nodes_sorted)
-                total_width = (count - 1) * h_spacing
-                start_x = -total_width / 2.0
-                for idx, node in enumerate(nodes_sorted):
-                    x = start_x + idx * h_spacing
-                    com = structures[node].com_vertical
-                    y = (1.0 - (com - com_min) / com_range) * total_height
-                    positions[node] = QPointF(x, y)
-        else:
-            for lvl in range(0, max_level + 1):
-                nodes_at_level = level_nodes.get(lvl, [])
-                if not nodes_at_level:
-                    continue
-                nodes_sorted = sorted(nodes_at_level)
-                count = len(nodes_sorted)
-                total_width = (count - 1) * h_spacing
-                start_x = -total_width / 2.0
-                y = lvl * v_spacing
-                for idx, node in enumerate(nodes_sorted):
-                    x = start_x + idx * h_spacing
-                    positions[node] = QPointF(x, y)
+        for lvl in range(0, max_level + 1):
+            nodes_at_level = level_nodes.get(lvl, [])
+            if not nodes_at_level:
+                continue
+            nodes_sorted = sorted(nodes_at_level)
+            count = len(nodes_sorted)
+            total_width = (count - 1) * h_spacing
+            start_x = -total_width / 2.0
+            y = lvl * v_spacing
+            for idx, node in enumerate(nodes_sorted):
+                x = start_x + idx * h_spacing
+                positions[node] = QPointF(x, y)
 
         # Draw directed edges (with arrowheads) first so they appear behind nodes
         edge_pen = QPen(QColor(80, 80, 80))
