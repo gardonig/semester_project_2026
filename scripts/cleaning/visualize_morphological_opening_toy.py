@@ -44,9 +44,6 @@ for _dr in range(-7, 8):
             if 0 <= _br + _dr < H and 0 <= _bc + _dc < W:
                 mask[_br + _dr, _bc + _dc] = True
 
-# ---------------------------------------------------------------------------
-# Erosion and dilation
-# ---------------------------------------------------------------------------
 eroded = binary_erosion(mask, structure=se)
 opened = binary_dilation(eroded, structure=se)
 
