@@ -25,9 +25,6 @@ for dr in range(-RADIUS, RADIUS + 1):
         if dr * dr + dc * dc <= RADIUS * RADIUS:
             se[dr + RADIUS, dc + RADIUS] = True
 
-# ---------------------------------------------------------------------------
-# Build synthetic mask  (two separate blobs, no connection)
-# ---------------------------------------------------------------------------
 H, W = 120, 190
 mask = np.zeros((H, W), dtype=bool)
 
