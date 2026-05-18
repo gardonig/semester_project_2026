@@ -512,11 +512,26 @@ class MainWindow(QMainWindow):
 
         # Continue from preloaded matrices by injecting the selected-axis matrix.
         if axis == AXIS_VERTICAL:
-            self.poset_builder.M = [row[:] for row in self._matrix_vertical]
+            preloaded = self._matrix_vertical
         elif axis == AXIS_MEDIOLATERAL:
-            self.poset_builder.M = [row[:] for row in self._matrix_mediolateral]
+            preloaded = self._matrix_mediolateral
         else:
-            self.poset_builder.M = [row[:] for row in self._matrix_anteroposterior]
+            preloaded = self._matrix_anteroposterior
+
+        n = len(structures)
+        if preloaded and len(preloaded) != n:
+            QMessageBox.warning(
+                self,
+                "Structure mismatch",
+                f"The loaded file contains a {len(preloaded)}×{len(preloaded)} matrix "
+                f"but the current table has {n} structures.\n\n"
+                "Please load a file whose structures match the ones in the table, "
+                "or clear the table and load the matching file first.",
+            )
+            self.start_btn.setEnabled(True)
+            return
+
+        self.poset_builder.M = [row[:] for row in preloaded]
         self.poset_builder.finished = False
         self.poset_builder.current_gap = 1
         self.poset_builder.current_i = 0
