@@ -133,21 +133,25 @@ class HasseDiagramView(QGraphicsView):
             adj[u].append(v)
             indeg[v] += 1
 
-        # Longest-path style levels from sources (indeg == 0)
-        levels: Dict[int, int] = {i: 0 for i in range(n)}
-
+        # Longest-path levels: topological sort first, then forward pass
         from collections import deque
 
-        q: deque[int] = deque(i for i in range(n) if indeg[i] == 0)
-        seen: Set[int] = set(q)
+        in_deg_copy = dict(indeg)
+        topo: List[int] = []
+        q: deque[int] = deque(i for i in range(n) if in_deg_copy[i] == 0)
         while q:
             u = q.popleft()
+            topo.append(u)
+            for v in adj[u]:
+                in_deg_copy[v] -= 1
+                if in_deg_copy[v] == 0:
+                    q.append(v)
+
+        levels: Dict[int, int] = {i: 0 for i in range(n)}
+        for u in topo:
             for v in adj[u]:
                 if levels[v] < levels[u] + 1:
                     levels[v] = levels[u] + 1
-                if v not in seen:
-                    seen.add(v)
-                    q.append(v)
 
         level_nodes: Dict[int, List[int]] = {}
         max_level = 0
