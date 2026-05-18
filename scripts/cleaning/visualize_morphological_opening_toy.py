@@ -63,13 +63,8 @@ def _make(fg: np.ndarray, faded: np.ndarray | None = None) -> np.ndarray:
     img[fg] = BLUE
     return img
 
-# Panel 1: both blobs, same colour
 img1 = _make(mask)
-
-# Panel 2: after erosion — small gone, large shrunk; eroded boundary shown grey
 img2 = _make(eroded, faded=(mask & ~eroded))
-
-# Panel 3: after dilation (opening) — only LCC survives
 img3 = _make(opened)
 
 fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
