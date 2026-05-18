@@ -53,9 +53,6 @@ comp2 = labeled_orig == 2
 if comp1.sum() < comp2.sum():
     comp1, comp2 = comp2, comp1   # comp1 = large, comp2 = small
 
-# ---------------------------------------------------------------------------
-# Colours — single colour for the mask, grey for eroded-away pixels
-# ---------------------------------------------------------------------------
 BLUE      = np.array([0.20, 0.47, 0.87, 1.0])
 GREY_LOST = np.array([0.78, 0.78, 0.78, 1.0])
 
