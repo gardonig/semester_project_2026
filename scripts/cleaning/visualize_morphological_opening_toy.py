@@ -28,7 +28,6 @@ for dr in range(-RADIUS, RADIUS + 1):
 H, W = 120, 190
 mask = np.zeros((H, W), dtype=bool)
 
-# Heart blob — implicit equation (x²+y²−1)³ − x²y³ ≤ 0
 cy, cx = 62, 62
 s = 28.0
 rows, cols = np.mgrid[0:H, 0:W]
