@@ -165,7 +165,7 @@ forbidden_shade(a, 0.0, LFLOOR)
 constraint_line(a, LFLOOR, "lung floor")
 a.annotate("", xy=(0.50, LFLOOR + 0.03), xytext=(0.50, BDY + 0.10),
            arrowprops=dict(arrowstyle="->", color=C_VIOL, lw=2.0))
-rule_box(a, 0.50, 0.595, "Brain  ↑  Lung")
+rule_box(a, 0.50, 0.595, "Brain  ≻  Lung")
 bottom_note(a, "Brain CoM entirely below lungs → hard violation", C_VIOL)
 
 # Panel (1,1) — Cleaned
