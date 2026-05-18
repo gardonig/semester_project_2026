@@ -35,7 +35,6 @@ x = (cols - cx) / s
 y = -(rows - cy) / s
 mask |= (x**2 + y**2 - 1)**3 - x**2 * y**3 <= 0
 
-# Small circular blob — radius 7, fully erased by radius-8 erosion
 _br, _bc = 50, 145
 for _dr in range(-7, 8):
     for _dc in range(-7, 8):
