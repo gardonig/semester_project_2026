@@ -139,7 +139,7 @@ a.annotate("", xy=(0.22, 0.87), xytext=(0.22, 0.94),
            arrowprops=dict(arrowstyle="->", color=C_VIOL, lw=1.8))
 a.annotate("", xy=(0.76, 0.85), xytext=(0.76, 0.93),
            arrowprops=dict(arrowstyle="->", color=C_VIOL, lw=1.8))
-rule_box(a, 0.50, 0.605, "Brain  ↑  Lung")
+rule_box(a, 0.50, 0.605, "Brain  ≻  Lung")
 bottom_note(a, "Lung fragments found above brain floor", C_VIOL)
 
 # Panel (0,1) — Cleaned
