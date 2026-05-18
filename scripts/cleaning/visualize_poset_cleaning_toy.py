@@ -56,7 +56,7 @@ def draw_brain(ax, cx, cy, fc=C_BRAIN, ec=C_EDGE, lw=1.8, ls="-", alpha=1.0):
 
 
 def draw_lungs(ax, cx, cy, fc=C_LUNG, ec=C_EDGE, lw=1.8, ls="-", alpha=1.0):
-    for sign, side in [(-1, "L"), (1, "R")]:
+    for sign, side in [(-1, "R"), (1, "L")]:
         _ellipse(ax, cx + sign*0.185, cy, 0.21, 0.33, fc,
                  ec=ec, lw=lw, ls=ls, alpha=alpha, angle=-sign*8)
         ax.text(cx + sign*0.185, cy, f"{side}. Lung",
