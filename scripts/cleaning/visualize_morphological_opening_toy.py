@@ -47,9 +47,6 @@ for _dr in range(-7, 8):
 eroded = binary_erosion(mask, structure=se)
 opened = binary_dilation(eroded, structure=se)
 
-# ---------------------------------------------------------------------------
-# Identify the two components
-# ---------------------------------------------------------------------------
 labeled_orig, _ = label(mask)
 comp1 = labeled_orig == 1
 comp2 = labeled_orig == 2
