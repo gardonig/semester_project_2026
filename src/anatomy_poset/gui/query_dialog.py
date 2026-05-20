@@ -1771,6 +1771,33 @@ class QueryDialog(QDialog):
         self._update_progress()
         self.setFocus()
 
+    def _redo_query(self) -> None:
+        """Reset all answers and restart the query from scratch, overwriting the current file."""
+        n = len(self.poset_builder.structures)
+        fresh = initial_tri_valued_relation_matrix(n)
+        self.poset_builder.M = [row[:] for row in fresh]
+        self.poset_builder.finished = False
+        self.poset_builder.current_gap = 1
+        self.poset_builder.current_i = 0
+        self._answer_history.clear()
+        self._matrix_snapshots.clear()
+        self._answer_history_labels.clear()
+        self._correction_replay = None
+        self._autosave_poset(seal_lower_triangle=False)
+        self._refresh_history_list()
+        self._finish_row.hide()
+        self.yes_btn.show()
+        self.no_btn.show()
+        self.not_sure_btn.show()
+        self.back_btn.show()
+        self.yes_btn.setEnabled(True)
+        self.no_btn.setEnabled(True)
+        self.not_sure_btn.setEnabled(True)
+        self.back_btn.setEnabled(False)
+        self.feedback_box.clear()
+        self._advance_to_next_query()
+        self.setFocus()
+
     def _bilateral_core_for_index(self, idx: int) -> Optional[str]:
         """Singular core name for this structure if it is a bilateral side, else None (for CoM lookup)."""
         if idx < 0 or idx >= len(self.poset_builder.structures):
