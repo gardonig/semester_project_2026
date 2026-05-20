@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from ..core.matrix_builder import (
     MatrixBuilder,
     _parse_bilateral_core as parse_bilateral_core,
+    initial_tri_valued_relation_matrix,
 )
 from ..core.config import ASSETS_DIR
 from ..core.axis_models import (
