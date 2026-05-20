@@ -1174,6 +1174,21 @@ class QueryDialog(QDialog):
         self._finish_undo_btn.clicked.connect(self.go_back_one_question)
         _finish_layout.addWidget(self._finish_undo_btn)
 
+        self._redo_btn = QPushButton("↺ Redo Query")
+        self._redo_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #ff9500; color: white; border: none; border-radius: 8px;
+                padding: 12px 16px; font-size: 15px;
+            }
+            QPushButton:hover { background-color: #ffb340; }
+            QPushButton:pressed { background-color: #c96f00; }
+            """
+        )
+        self._redo_btn.setToolTip("Reset all answers and restart this query from scratch, overwriting the current file.")
+        self._redo_btn.clicked.connect(self._redo_query)
+        _finish_layout.addWidget(self._redo_btn, stretch=1)
+
         self.finish_btn = QPushButton("Done")
         self.finish_btn.setStyleSheet(
             """
