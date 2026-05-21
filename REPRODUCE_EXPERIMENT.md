@@ -21,18 +21,20 @@ pip install nibabel numpy scipy pandas matplotlib
 ```
 
 **Dataset:** Download the TotalsegmentatorMRI v200 dataset from Zenodo
-(Wasserthal et al., *Radiology: AI* 2024, https://doi.org/10.1148/ryai.230024).
+(Wasserthal et al., *Radiology: AI* 2024, <https://doi.org/10.1148/ryai.230024>).
 Place it at:
 
-```
+```text
 data/datasets/TotalsegmentatorMRI_dataset_v200/
 ```
 
 **Test subjects** (held out from all offline computations):
-```
+
+```text
 s0022  s0167  s0175  s0186  s0187
 s0219  s0236  s0237  s0243  s0250
 ```
+
 These 10 were chosen for having the highest number of non-empty GT masks.
 
 ---
