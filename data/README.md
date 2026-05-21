@@ -2,10 +2,10 @@
 
 ```text
 data/
-├── datasets/        Source MRI volumes + GT segmentations — gitignored
-├── experiments/     Artifact MRIs, segmentations, evaluation results — gitignored
-├── posets/          Poset JSON files (empirical, clinician, LLM, merged)
-└── structures/      Centre-of-mass atlases
+├── datasets/                 Source MRI volumes + GT segmentations — gitignored
+├── wraparound_experiments/   Artifact MRIs, segmentations, evaluation results — gitignored
+├── posets/                   Poset JSON files (empirical, clinician, LLM, merged)
+└── structures/               Centre-of-mass atlases
 ```
 
 ---
@@ -20,15 +20,18 @@ data/
 
 ---
 
-## experiments/
+## wraparound_experiments/
 
 Generated data — gitignored. Recreate with the scripts in `scripts/data_prep/` and `scripts/cleaning/`.
 
 | Folder | Contents |
 | --- | --- |
-| `wraparound_v3/` | WM3 artifact MRIs and TotalSegmentator predictions (880 conditions × 10 subjects) |
-| `wraparound_v3_eval/` | Poset-based cleaning evaluation results at threshold = 0.95 |
-| `wraparound_v3_eval_t100/` | Poset-based cleaning evaluation results at threshold = 1.00 |
+| `wraparound_v4/` | WM3 artifact MRIs and TotalSegmentator predictions (V4, 10 subjects) |
+| `wraparound_v4_eval/` | Evaluation results for erosion baselines and intermediate thresholds |
+| `wraparound_v4_eval_cm4/` | V4 evaluation results for poset-based cleaning (CM4) |
+| `wraparound_v4_eval_cm4/t100/` | Per-structure results CSV, metric plots, per-subject partials at threshold = 1.00 |
+| `wraparound_v4_eval_cm4/cm4_real_cases/` | Qualitative case studies: annotated slice PNGs and detail markdowns |
+| `wraparound_v4_eval_cm4/cm4_visuals/` | Method explanation figures used in the report (toy walkthroughs) |
 
 ---
 
