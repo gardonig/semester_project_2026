@@ -94,7 +94,7 @@ Both commands are idempotent — already-existing files are skipped.
 Crop regions per subject:
 
 | Crop | Subjects |
-|------|---------|
+| --- | --- |
 | `brain_to_heart` | s0175, s0236 only |
 | `heart_to_kidney` | all 10 |
 | `kidney_to_hip` | all 10 |
