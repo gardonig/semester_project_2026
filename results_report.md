@@ -4,7 +4,7 @@
 
 ## Overview
 
-Ten whole-body MRI subjects were segmented with TotalSegmentator under synthetic wrap-around artefacts (ghost intensity *r* ∈ {0.25, 0.50, 0.75, 1.00}; shift fraction *d* ∈ {0.05, …, 0.50}; 40 conditions per subject). At maximum severity (*r*=1.00, *d*=0.50) Dice and **F1** (identical to Dice here — standard binary overlap) drop from **0.821** to **0.493** and Precision from **0.839** to **0.785** relative to the clean reference. We compare three subtractive baselines — **LCC only** (largest connected component per structure), **morphological opening** with ball radii **1** and **2** — to **Poset-Based Cleaning** (anatomical poset constraints plus SI **mid-plane proximity** conflict resolution at threshold *t*=1.00). Merged metrics for Poset-Based Cleaning are in `data/experiments/wraparound_v4_eval_cm4/t100/results.csv` (**25 866** structure×condition pairs). Baselines use the same crops and subjects but **19 801** pairs per method (erosion evaluation merge); artifact Dice/Prec therefore differ slightly from the Poset-Based Cleaning row, which is evaluated on the full pair set.
+Ten whole-body MRI subjects were segmented with TotalSegmentator under synthetic wrap-around artefacts (ghost intensity *r* ∈ {0.25, 0.50, 0.75, 1.00}; shift fraction *d* ∈ {0.05, …, 0.50}; 40 conditions per subject). At maximum severity (*r*=1.00, *d*=0.50) Dice and **F1** (identical to Dice here — standard binary overlap) drop from **0.821** to **0.493** and Precision from **0.839** to **0.785** relative to the clean reference. We compare three subtractive baselines — **LCC only** (largest connected component per structure), **morphological opening** with ball radii **1** and **2** — to **Poset-Based Cleaning** (anatomical poset constraints plus SI **mid-plane proximity** conflict resolution at threshold *t*=1.00). Merged metrics for Poset-Based Cleaning are in `data/wraparound_experiments/wraparound_v4_eval_cm4/t100/results.csv` (**25 866** structure×condition pairs). Baselines use the same crops and subjects but **19 801** pairs per method (erosion evaluation merge); artifact Dice/Prec therefore differ slightly from the Poset-Based Cleaning row, which is evaluated on the full pair set.
 
 ---
 
@@ -26,7 +26,7 @@ All methods only remove predicted voxels. Removing ghost false positives raises 
 
 Morphological opening (r=1) maximises the raw ΔPrec/|ΔDice| ratio among baselines but **overshoots** Precision past the no-artefact level while dropping Dice sharply. **Poset-Based Cleaning** keeps mean Dice/F1 nearly unchanged (**≈ −0.001**) with a clear mean Precision gain (**≈ +0.010**, **~34%** recovery); the efficiency ratio is huge only because |ΔDice| is near zero (not comparable to high-loss methods).
 
-**Figures:** `data/experiments/wraparound_v4_eval_cm4/fig_tradeoff_scatter.png`, `fig_efficiency_bar.png` (and sibling plots from `plot_wraparound_method_figures.py`).
+**Figures:** `data/wraparound_experiments/wraparound_v4_eval_cm4/fig_tradeoff_scatter.png`, `fig_efficiency_bar.png` (and sibling plots from `plot_wraparound_method_figures.py`).
 
 ---
 
@@ -49,7 +49,7 @@ LCC and opening apply a fixed morphological rule at every *d*. Poset-Based Clean
 | 0.45 | −0.048 | −0.077 | −0.100 | −0.006 | +0.004 | +0.041 | +0.045 | +0.019 |
 | 0.50 | −0.050 | −0.078 | −0.103 | −0.027 | +0.002 | +0.040 | +0.043 | +0.014 |
 
-**Figures:** `fig_adaptivity_by_d.png`; heatmaps of mean ΔDice over (*d*, *r*) for each method — `data/experiments/wraparound_v4_eval_cm4/t100/heatmap_delta_d_r.png` (Poset-Based Cleaning) and the erosion baseline bundle under `wraparound_v4_eval/` as produced by your plotting scripts.
+**Figures:** `fig_adaptivity_by_d.png`; heatmaps of mean ΔDice over (*d*, *r*) for each method — `data/wraparound_experiments/wraparound_v4_eval_cm4/t100/heatmap_delta_d_r.png` (Poset-Based Cleaning) and the erosion baseline bundle under `wraparound_v4_eval/` as produced by your plotting scripts.
 
 ---
 
@@ -190,7 +190,7 @@ At the structure level, the largest mean improvements under Poset-Based Cleaning
 
 ## A4. Poset-Based Cleaning — pair counts and per-structure extremes
 
-Source: `data/experiments/wraparound_v4_eval_cm4/t100/results.csv` and machine `report.md`. Improved / degraded use |Δ| > 0.0001 on the paired row (same definitions as `report.md`).
+Source: `data/wraparound_experiments/wraparound_v4_eval_cm4/t100/results.csv` and machine `report.md`. Improved / degraded use |Δ| > 0.0001 on the paired row (same definitions as `report.md`).
 
 | Metric | Mean ΔDice (=ΔF1) | Mean ΔPrec | Improved | Degraded | **Net** |
 | --- | :---: | :---: | ---: | ---: | ---: |

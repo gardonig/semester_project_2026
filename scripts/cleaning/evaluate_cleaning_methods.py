@@ -23,11 +23,11 @@ Usage
 -----
     python scripts/cleaning/evaluate_cleaning_methods.py \
         --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \
-        --exp_dir   data/experiments/wraparound \
+        --exp_dir   data/wraparound_experiments/wraparound \
         --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
         --com       data/structures/totalseg_v2_com.json \
         --subject   s0175 \
-        --out_dir   data/experiments/wraparound_cleaning_eval \
+        --out_dir   data/wraparound_experiments/wraparound_cleaning_eval \
         --threshold 0.95
 """
 
@@ -1219,13 +1219,13 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data_dir",  default="data/datasets/TotalsegmentatorMRI_dataset_v200")
-    p.add_argument("--exp_dir",   default="data/experiments/wraparound")
+    p.add_argument("--exp_dir",   default="data/wraparound_experiments/wraparound")
     p.add_argument("--poset",     default="data/posets/empirical/totalseg_mri_empirical_poset.json")
     p.add_argument("--subject",   default="s0175",
                    help="Single subject (ignored if --subjects is given)")
     p.add_argument("--subjects",  nargs="+", default=None,
                    help="One or more subjects, e.g. s0175 s0236 s0219")
-    p.add_argument("--out_dir",   default="data/experiments/wraparound_cleaning_eval")
+    p.add_argument("--out_dir",   default="data/wraparound_experiments/wraparound_cleaning_eval")
     p.add_argument("--threshold", type=float, default=0.95,
                    help="Min poset probability to count as hard constraint (default: 0.95)")
     p.add_argument("--method", choices=["cm3", "cm4"], default="cm3",

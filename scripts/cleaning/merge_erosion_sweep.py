@@ -26,7 +26,7 @@ Output structure:
 Usage
 -----
     python scripts/cleaning/merge_erosion_sweep.py \\
-        --base_dir data/experiments/wraparound_v4_eval/erosion_baseline
+        --base_dir data/wraparound_experiments/wraparound_v4_eval/erosion_baseline
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--base_dir", type=Path,
-                   default="data/experiments/wraparound_v4_eval/erosion_baseline",
+                   default="data/wraparound_experiments/wraparound_v4_eval/erosion_baseline",
                    help="Root dir produced by erosion_sweep_array.sh")
     args = p.parse_args()
 

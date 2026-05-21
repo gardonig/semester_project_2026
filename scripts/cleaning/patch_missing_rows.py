@@ -5,7 +5,7 @@ then regenerate report.md and plots.
 Usage
 -----
     python scripts/cleaning/patch_missing_rows.py \
-        --eval_dir data/experiments/wraparound_v4_eval
+        --eval_dir data/wraparound_experiments/wraparound_v4_eval
 """
 
 from __future__ import annotations

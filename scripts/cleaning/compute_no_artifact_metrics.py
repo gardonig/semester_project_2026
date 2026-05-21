@@ -15,18 +15,18 @@ Usage
     # Single threshold dir:
     python scripts/cleaning/compute_no_artifact_metrics.py \\
         --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \\
-        --exp_dir   data/experiments/wraparound_v4 \\
-        --eval_dirs data/experiments/wraparound_v4_eval/t100 \\
-        --out_dir   data/experiments/wraparound_v4_eval
+        --exp_dir   data/wraparound_experiments/wraparound_v4 \\
+        --eval_dirs data/wraparound_experiments/wraparound_v4_eval/t100 \\
+        --out_dir   data/wraparound_experiments/wraparound_v4_eval
 
     # All three threshold dirs at once:
     python scripts/cleaning/compute_no_artifact_metrics.py \\
         --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \\
-        --exp_dir   data/experiments/wraparound_v4 \\
-        --eval_dirs data/experiments/wraparound_v4_eval/t095 \\
-                    data/experiments/wraparound_v4_eval/t099 \\
-                    data/experiments/wraparound_v4_eval/t100 \\
-        --out_dir   data/experiments/wraparound_v4_eval
+        --exp_dir   data/wraparound_experiments/wraparound_v4 \\
+        --eval_dirs data/wraparound_experiments/wraparound_v4_eval/t095 \\
+                    data/wraparound_experiments/wraparound_v4_eval/t099 \\
+                    data/wraparound_experiments/wraparound_v4_eval/t100 \\
+        --out_dir   data/wraparound_experiments/wraparound_v4_eval
 """
 
 from __future__ import annotations

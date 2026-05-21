@@ -476,9 +476,9 @@ The baseline is implemented in `scripts/cleaning/evaluate_erosion_baseline.py`. 
 
 ```bash
 python scripts/cleaning/evaluate_erosion_baseline.py \
-    --exp_dir   data/experiments/wraparound_v4 \
+    --exp_dir   data/wraparound_experiments/wraparound_v4 \
     --subjects  s0175 s0236 s0219 \
-    --out_dir   data/experiments/wraparound_v4_eval/erosion_baseline \
+    --out_dir   data/wraparound_experiments/wraparound_v4_eval/erosion_baseline \
     --method    opening_lcc \
     --radius    2
 ```
@@ -564,8 +564,8 @@ Evaluated over all 40 artifact conditions (10 d × 4 r). No-artifact reference (
 
 Plots:
 
-- `data/experiments/wraparound_v4_eval/erosion_baseline/dice_by_d_erosion_baseline.png`
-- `data/experiments/wraparound_v4_eval/erosion_baseline/prec_by_d_erosion_baseline.png`
+- `data/wraparound_experiments/wraparound_v4_eval/erosion_baseline/dice_by_d_erosion_baseline.png`
+- `data/wraparound_experiments/wraparound_v4_eval/erosion_baseline/prec_by_d_erosion_baseline.png`
 
 **Key finding:** LCC-only barely changes Precision (+0.003) while consistently degrading Dice (−0.047) — it is the most conservative but also least effective baseline. Opening with r=1 recovers ghost FP more aggressively (Precision +0.043) but at a higher Dice cost (−0.078). Opening with r=2 further maximises Precision gain (+0.046) at severe Dice cost (−0.102). Poset-based cleaning achieves the best Dice/Precision trade-off: smaller Dice loss (−0.042 vs −0.078 for r=1) with comparable Precision recovery (+0.010), because it uses anatomical position to discriminate ghost from real anatomy rather than relying purely on component size.
 
@@ -812,7 +812,7 @@ TotalsegmentatorMRI GT
         │     → data/posets/empirical/totalseg_mri_empirical_poset.json
         │
         └─ simulate_wraparound_artifact.py  (test subjects only)
-              → data/experiments/wraparound_v4/sXXXX/crop/dXXX_rXXX/mri_artifact.nii.gz
+              → data/wraparound_experiments/wraparound_v4/sXXXX/crop/dXXX_rXXX/mri_artifact.nii.gz
                           │
                           └─ TotalSegmentator v2.13.0 --task total_mr --fast
                                 → .../segmentations/*.nii.gz

@@ -65,16 +65,16 @@ Usage
 -----
     python scripts/cleaning/evaluate_erosion_baseline.py \\
         --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \\
-        --exp_dir   data/experiments/wraparound_v4 \\
+        --exp_dir   data/wraparound_experiments/wraparound_v4 \\
         --subject   s0175 \\
-        --out_dir   data/experiments/wraparound_v4_eval/erosion_baseline \\
+        --out_dir   data/wraparound_experiments/wraparound_v4_eval/erosion_baseline \\
         --radius    2 \\
         --method    opening_lcc
 
     # Multiple subjects:
     python scripts/cleaning/evaluate_erosion_baseline.py \\
         --subjects  s0175 s0236 s0219 \\
-        --out_dir   data/experiments/wraparound_v4_eval/erosion_baseline
+        --out_dir   data/wraparound_experiments/wraparound_v4_eval/erosion_baseline
 """
 
 from __future__ import annotations
@@ -808,13 +808,13 @@ def main():
     )
     p.add_argument("--data_dir",  default="data/datasets/TotalsegmentatorMRI_dataset_v200",
                    help="Root of the TotalSegmentator MRI dataset")
-    p.add_argument("--exp_dir",   default="data/experiments/wraparound_v4",
+    p.add_argument("--exp_dir",   default="data/wraparound_experiments/wraparound_v4",
                    help="Root of the wraparound experiment (contains subject subdirs)")
     p.add_argument("--subject",   default="s0175",
                    help="Single subject (ignored if --subjects is given)")
     p.add_argument("--subjects",  nargs="+", default=None,
                    help="One or more subjects, e.g. s0175 s0236 s0219")
-    p.add_argument("--out_dir",   default="data/experiments/wraparound_v4_eval/erosion_baseline",
+    p.add_argument("--out_dir",   default="data/wraparound_experiments/wraparound_v4_eval/erosion_baseline",
                    help="Output directory for CSV, plots, and report")
     p.add_argument("--method",    default="opening_lcc",
                    choices=["opening_lcc", "lcc_only"],

@@ -27,7 +27,7 @@ Usage
         --subjects s0175 \\
         --shift_fracs 0.10 0.25 0.50 \\
         --intensities 0.5 1.0 \\
-        --out_dir data/experiments/wraparound \\
+        --out_dir data/wraparound_experiments/wraparound \\
         --visualize
 
     # Top-N subjects + TotalSegmentator
@@ -36,7 +36,7 @@ Usage
         --top_n 10 \\
         --shift_fracs 0.10 0.25 0.50 \\
         --intensities 0.5 1.0 \\
-        --out_dir data/experiments/wraparound \\
+        --out_dir data/wraparound_experiments/wraparound \\
         --visualize \\
         --run_totalseg \\
         --totalseg .totalseg_venv/bin/TotalSegmentator

@@ -33,20 +33,24 @@ pip install -e .
 
 ```text
 ├── data/
-│   ├── datasets/                    # Source MRI volumes + GT segmentations — gitignored
-│   ├── experiments/                 # Artifact MRIs, segmentations, eval results — gitignored
-│   │   ├── wraparound_v3/           # V3 artifacts (880 conditions across 10 subjects)
-│   │   ├── wraparound_v3_eval/      # Evaluation results t=0.95
-│   │   └── wraparound_v3_eval_t100/ # Evaluation results t=1.00
+│   ├── datasets/                        # Source MRI volumes + GT segmentations — gitignored
+│   ├── wraparound_experiments/          # Artifact MRIs, segmentations, eval results — gitignored
+│   │   └── wraparound_v4_eval_cm4/      # V4 evaluation results (poset-based cleaning, CM4)
+│   │       ├── t100/                    # Per-structure results CSV, plots, per-subject partials
+│   │       ├── cm4_real_cases/          # Qualitative case studies and annotated slice PNGs
+│   │       └── cm4_visuals/             # Method explanation figures (toy walkthroughs)
 │   ├── structures/
 │   │   ├── totalseg_mri_com_landmark.json  # MRI CoM atlas, landmark-normalised (test-set excluded)
 │   │   └── totalseg_v2_com.json            # CT CoM atlas, image-extent normalised (legacy reference)
 │   └── posets/
 │       ├── empirical/
 │       │   └── totalseg_mri_empirical_poset.json  # Empirical poset — 50 structures, 606 MRI subjects
-│       ├── clinician_sessions/      # Human-annotated poset sessions
-│       ├── llm_sessions/            # LLM-generated poset sessions
-│       └── merged_sessions/         # Multi-annotator merged probability posets
+│       ├── clinician_sessions/          # Human-annotated poset sessions
+│       ├── llm_sessions/               # LLM-generated poset sessions
+│       └── merged_sessions/            # Multi-annotator merged probability posets
+├── legacy/
+│   ├── anatomy_poset_gui.py             # Original monolithic prototype GUI (superseded by src/)
+│   └── anatomy_input_editor.py         # Prototype input-file editor (imports from legacy GUI)
 ├── scripts/
 │   ├── cleaning/
 │   │   ├── evaluate_cleaning_methods.py      # Main evaluation script (poset-based cleaning)
@@ -55,14 +59,15 @@ pip install -e .
 │   │   ├── segment_artifacts_array.sh        # SLURM array: TotalSegmentator per artifact
 │   │   ├── clean_artifacts_array.sh          # SLURM array: poset-based cleaning per artifact
 │   │   └── evaluate_v3_batch.sh              # SLURM: full 10-subject evaluation
-│   └── data_prep/
-│       ├── simulate_wraparound_artifact.py   # WM3 artifact simulation
-│       ├── simulate_all_subjects.sh          # Run simulation for all 10 subjects
-│       ├── compute_com_landmark_normalized.py # Compute MRI CoM atlas (landmark-normalised)
-│       ├── compute_empirical_poset.py        # Compute empirical probability poset from GT
-│       ├── rank_mri_subjects.py              # Rank subjects by GT coverage
-│       ├── analyze_mri_coverage.py           # Analyse structure coverage across MRI dataset
-│       └── visualize_mri_wraparound.py       # Visualise artifact coronal slices
+│   ├── data_prep/
+│   │   ├── simulate_wraparound_artifact.py   # WM3 artifact simulation
+│   │   ├── simulate_all_subjects.sh          # Run simulation for all 10 subjects
+│   │   ├── compute_com_landmark_normalized.py # Compute MRI CoM atlas (landmark-normalised)
+│   │   ├── compute_empirical_poset.py        # Compute empirical probability poset from GT
+│   │   ├── rank_mri_subjects.py              # Rank subjects by GT coverage
+│   │   ├── analyze_mri_coverage.py           # Analyse structure coverage across MRI dataset
+│   │   └── visualize_mri_wraparound.py       # Visualise artifact coronal slices
+│   └── compute_pvalues.py                    # Wilcoxon p-values for report tables (V4 CM4 results)
 ├── src/anatomy_poset/
 │   ├── core/                        # axis_models, io, matrix_builder, matrix_aggregation
 │   └── gui/                         # PySide6 GUI
@@ -112,7 +117,7 @@ Total: **880 conditions** — 10 subjects × (2 or 3 crops) × 10 d-fracs × 4 r
 ### Running simulation
 
 ```bash
-# All 10 subjects, all conditions → data/experiments/wraparound_v3/
+# All 10 subjects, all conditions → data/wraparound_experiments/wraparound_v3/
 bash scripts/data_prep/simulate_all_subjects.sh
 
 # Single subject, custom sweep
@@ -121,7 +126,7 @@ python scripts/data_prep/simulate_wraparound_artifact.py \
     --subjects   s0175 \
     --shift_fracs 0.10 0.25 0.50 \
     --intensities 0.25 0.50 0.75 1.00 \
-    --out_dir    data/experiments/wraparound_v3
+    --out_dir    data/wraparound_experiments/wraparound_v3
 ```
 
 ---
@@ -186,16 +191,16 @@ Only constraints with empirical probability ≥ threshold are enforced:
 # evaluate poset-based cleaning on all subjects (runs cleaning in-memory)
 python scripts/cleaning/evaluate_cleaning_methods.py \
     --data_dir  data/datasets/TotalsegmentatorMRI_dataset_v200 \
-    --exp_dir   data/experiments/wraparound_v3 \
+    --exp_dir   data/wraparound_experiments/wraparound_v3 \
     --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
     --subjects  s0175 s0236 s0219 s0187 s0022 s0167 s0186 s0237 s0243 s0250 \
     --threshold 0.95 \
-    --out_dir   data/experiments/wraparound_v3_eval
+    --out_dir   data/wraparound_experiments/wraparound_v3_eval
 
 # save cleaned NIfTIs to disk for one condition (3D Slicer visualisation)
 python scripts/cleaning/save_cleaned_segmentations.py \
-    --pred_dir data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/segmentations \
-    --out_dir  data/experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/cleaned \
+    --pred_dir data/wraparound_experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/segmentations \
+    --out_dir  data/wraparound_experiments/wraparound_v3/s0175/heart_to_kidney/d025_r100/cleaned \
     --poset    data/posets/empirical/totalseg_mri_empirical_poset.json \
     --method   pc --threshold 0.95
 ```

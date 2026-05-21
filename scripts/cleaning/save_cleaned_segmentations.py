@@ -12,8 +12,8 @@ Methods available via --method:
 Usage
 -----
     python scripts/cleaning/save_cleaned_segmentations.py \
-        --pred_dir  data/experiments/wraparound/s0175/heart_to_kidney/d025_r100/segmentations \
-        --out_dir   data/experiments/wraparound/s0175/heart_to_kidney/d025_r100/cleaned \
+        --pred_dir  data/wraparound_experiments/wraparound/s0175/heart_to_kidney/d025_r100/segmentations \
+        --out_dir   data/wraparound_experiments/wraparound/s0175/heart_to_kidney/d025_r100/cleaned \
         --poset     data/posets/empirical/totalseg_mri_empirical_poset.json \
         --method    pc
 """

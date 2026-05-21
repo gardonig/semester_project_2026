@@ -206,18 +206,18 @@ for THRESH in 1.00 0.99 0.95; do
     TAG=$(python3 -c "t='$THRESH'; print('t'+t.replace('.','')[:3])")
     python scripts/cleaning/evaluate_cleaning_methods.py \
         --data_dir data/datasets/TotalsegmentatorMRI_dataset_v200 \
-        --exp_dir  data/experiments/wraparound_v4 \
+        --exp_dir  data/wraparound_experiments/wraparound_v4 \
         --poset    data/posets/empirical/totalseg_mri_empirical_poset.json \
         --subjects s0022 \
         --d_fracs 0.05 0.10 \
         --r_vals 0.25 0.50 0.75 1.00 \
         --threshold $THRESH \
-        --out_dir  data/experiments/wraparound_v4_eval/${TAG}/partial_fix_s0022
+        --out_dir  data/wraparound_experiments/wraparound_v4_eval/${TAG}/partial_fix_s0022
 done
 
 # Append new rows (deduplicates automatically) and regenerate reports
 python scripts/cleaning/patch_missing_rows.py \
-    --eval_dir data/experiments/wraparound_v4_eval
+    --eval_dir data/wraparound_experiments/wraparound_v4_eval
 ```
 
 **Script:** [scripts/cleaning/patch_missing_rows.py](scripts/cleaning/patch_missing_rows.py)
@@ -234,9 +234,9 @@ combined CSV showing how much the artifact degrades TotalSegmentator:
 ```bash
 python scripts/cleaning/compute_baseline_metrics.py \
     --data_dir data/datasets/TotalsegmentatorMRI_dataset_v200 \
-    --exp_dir  data/experiments/wraparound_v4 \
-    --eval_dir data/experiments/wraparound_v4_eval/t100 \
-    --out_dir  data/experiments/wraparound_v4_eval
+    --exp_dir  data/wraparound_experiments/wraparound_v4 \
+    --eval_dir data/wraparound_experiments/wraparound_v4_eval/t100 \
+    --out_dir  data/wraparound_experiments/wraparound_v4_eval
 ```
 
 Outputs:
@@ -248,7 +248,7 @@ Outputs:
 ## Output structure
 
 ```
-data/experiments/wraparound_v4/
+data/wraparound_experiments/wraparound_v4/
   sXXXX/
     <crop>/
       d000_r000/                    # clean baseline crop
@@ -258,7 +258,7 @@ data/experiments/wraparound_v4/
         mri_artifact.nii.gz
         segmentations/*.nii.gz
 
-data/experiments/wraparound_v4_eval/
+data/wraparound_experiments/wraparound_v4_eval/
   baseline_metrics.csv
   results_with_baseline.csv
   t095/

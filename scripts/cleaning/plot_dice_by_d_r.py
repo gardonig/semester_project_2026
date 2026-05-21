@@ -7,8 +7,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 from pathlib import Path
 
-RESULTS = Path(__file__).parents[2] / "data/experiments/wraparound_v3_eval/results.csv"
-OUT = Path(__file__).parents[2] / "data/experiments/wraparound_v3_eval/dice_by_d_r.png"
+RESULTS = Path(__file__).parents[2] / "data/wraparound_experiments/wraparound_v3_eval/results.csv"
+OUT = Path(__file__).parents[2] / "data/wraparound_experiments/wraparound_v3_eval/dice_by_d_r.png"
 
 df = pd.read_csv(RESULTS)
 df = df[df["has_gt"] == True]

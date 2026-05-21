@@ -46,7 +46,7 @@ def load(csv_path: Path, ref_csv: Optional[Path]) -> pd.DataFrame:
         if ref_csv is None:
             raise SystemExit(
                 f"{csv_path} lacks {REF_COLS}; pass --ref_csv "
-                "(e.g. data/experiments/wraparound_v4_eval/t100/results_with_no_artifact.csv)"
+                "(e.g. data/wraparound_experiments/wraparound_v4_eval/t100/results_with_no_artifact.csv)"
             )
         ref = pd.read_csv(ref_csv)
         miss = [c for c in MERGE_KEYS + REF_COLS if c not in ref.columns]

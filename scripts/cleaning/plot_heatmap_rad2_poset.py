@@ -7,9 +7,9 @@ Reads the same CSVs as the wraparound_v4_eval pipeline:
 
 Example:
     python scripts/cleaning/plot_heatmap_rad2_poset.py \\
-        --erosion_csv data/experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv \\
-        --poset_csv   data/experiments/wraparound_v4_eval/t100/results.csv \\
-        --out         data/experiments/wraparound_v4_eval/heatmap_rad2_vs_poset_t1.png
+        --erosion_csv data/wraparound_experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv \\
+        --poset_csv   data/wraparound_experiments/wraparound_v4_eval/t100/results.csv \\
+        --out         data/wraparound_experiments/wraparound_v4_eval/heatmap_rad2_vs_poset_t1.png
 """
 
 from __future__ import annotations
@@ -82,20 +82,20 @@ def main() -> None:
         "--erosion_csv",
         type=Path,
         default=PROJECT_ROOT
-        / "data/experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv",
+        / "data/wraparound_experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv",
         help="Merged results for opening baseline at ball radius 2",
     )
     p.add_argument(
         "--poset_csv",
         type=Path,
-        default=PROJECT_ROOT / "data/experiments/wraparound_v4_eval/t100/results.csv",
+        default=PROJECT_ROOT / "data/wraparound_experiments/wraparound_v4_eval/t100/results.csv",
         help="Merged poset eval at threshold t=1.00 (tag t100)",
     )
     p.add_argument(
         "--out",
         type=Path,
         default=PROJECT_ROOT
-        / "data/experiments/wraparound_v4_eval/heatmap_rad2_vs_poset_t1.png",
+        / "data/wraparound_experiments/wraparound_v4_eval/heatmap_rad2_vs_poset_t1.png",
         help="Output PNG path",
     )
     args = p.parse_args()

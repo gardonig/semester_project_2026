@@ -284,8 +284,8 @@ def plot_diff_heatmap(p_a: pd.DataFrame, p_b: pd.DataFrame, out: Path, title: st
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--eval_root", type=Path, default=PROJECT_ROOT / "data/experiments/wraparound_v4_eval")
-    p.add_argument("--cm4_eval_root", type=Path, default=PROJECT_ROOT / "data/experiments/wraparound_v4_eval_cm4")
+    p.add_argument("--eval_root", type=Path, default=PROJECT_ROOT / "data/wraparound_experiments/wraparound_v4_eval")
+    p.add_argument("--cm4_eval_root", type=Path, default=PROJECT_ROOT / "data/wraparound_experiments/wraparound_v4_eval_cm4")
     p.add_argument("--baseline_csv", type=Path, default=None)
     p.add_argument("--out_dir", type=Path, default=None)
     args = p.parse_args()

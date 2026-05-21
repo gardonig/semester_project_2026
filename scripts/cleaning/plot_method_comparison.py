@@ -13,9 +13,9 @@ Usage
 -----
     # Comparison using a single erosion radius CSV:
     python scripts/cleaning/plot_method_comparison.py \\
-        --erosion_csv data/experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv \\
-        --pc_csv      data/experiments/wraparound_v4_eval/t100/results.csv \\
-        --out_dir     data/experiments/wraparound_v4_eval/erosion_baseline
+        --erosion_csv data/wraparound_experiments/wraparound_v4_eval/erosion_baseline/radius_2/results.csv \\
+        --pc_csv      data/wraparound_experiments/wraparound_v4_eval/t100/results.csv \\
+        --out_dir     data/wraparound_experiments/wraparound_v4_eval/erosion_baseline
 
     # If you also want to overlay the no-artifact reference line:
     python scripts/cleaning/plot_method_comparison.py \\
@@ -26,9 +26,9 @@ Usage
 
     # To compare multiple erosion radii on the same figure pass a dir:
     python scripts/cleaning/plot_method_comparison.py \\
-        --erosion_dir data/experiments/wraparound_v4_eval/erosion_baseline \\
-        --pc_csv      data/experiments/wraparound_v4_eval/t100/results.csv \\
-        --out_dir     data/experiments/wraparound_v4_eval/erosion_baseline
+        --erosion_dir data/wraparound_experiments/wraparound_v4_eval/erosion_baseline \\
+        --pc_csv      data/wraparound_experiments/wraparound_v4_eval/t100/results.csv \\
+        --out_dir     data/wraparound_experiments/wraparound_v4_eval/erosion_baseline
 """
 
 from __future__ import annotations
@@ -267,7 +267,7 @@ def main():
                    help="results_with_no_artifact.csv — used to draw the "
                         "no-artifact reference line")
     p.add_argument("--out_dir", type=Path,
-                   default=Path("data/experiments/wraparound_v4_eval/erosion_baseline"),
+                   default=Path("data/wraparound_experiments/wraparound_v4_eval/erosion_baseline"),
                    help="Directory to write comparison PNGs into")
     args = p.parse_args()
 
