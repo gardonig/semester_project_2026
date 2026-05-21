@@ -8,7 +8,7 @@ No cluster or SLURM required.
 ## Prerequisites
 
 | Component | Notes |
-|-----------|-------|
+| --- | --- |
 | Python 3.10+ | |
 | TotalSegmentator ≥ 2.13 | `pip install TotalSegmentator` — needs ≈ 8 GB disk for model weights |
 | TotalsegmentatorMRI dataset v200 | 616 subjects, 50 GT masks each — download below |
