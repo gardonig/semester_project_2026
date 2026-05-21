@@ -172,6 +172,16 @@ The `iliac_artery_right` degradation is the largest single failure and accounts 
 
 ---
 
+## `compute_pvalues.py` — Statistical tests for report tables
+
+Computes two-sided Wilcoxon signed-rank p-values for all Dice/Precision tables in the report. Reads `data/wraparound_experiments/wraparound_v4_eval_cm4/t100/results.csv`. Run from the repo root:
+
+```bash
+python scripts/compute_pvalues.py
+```
+
+---
+
 ## `data_prep/` — Data preparation
 
 | File | Purpose |
