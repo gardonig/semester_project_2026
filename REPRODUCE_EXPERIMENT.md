@@ -227,6 +227,7 @@ python scripts/cleaning/compute_no_artifact_metrics.py \
 ```
 
 Outputs:
+
 - `wraparound_v4_eval_cm4/no_artifact_metrics.csv` — Dice/Precision per (subject, crop, structure) at d=0
 - `wraparound_v4_eval_cm4/t100/results_with_no_artifact.csv` — merged with `delta_dice_artifact` and `delta_prec_artifact` columns
 
